@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
 from routers import routers
+from src.response import ApiResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application closed")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, default_response_class=ApiResponse)
 
 for router in routers:
     app.include_router(router)
