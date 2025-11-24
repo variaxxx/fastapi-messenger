@@ -1,21 +1,39 @@
-[project]
-name = "fastapi-messenger"
+[tool.poetry]
+name = "my_fastapi_project"
 version = "0.1.0"
-description = ""
+description = "FastAPI project with Google OAuth2, JWT auth, async SQLAlchemy"
+authors = ["Your Name <you@example.com>"]
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = [
-    "fastapi (>=0.121.3,<0.122.0)",
-    "dotenv (>=0.9.9,<0.10.0)"
-]
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+fastapi = "^0.110.0"
+uvicorn = { extras = ["standard"], version = "^0.29.0" }
+python-dotenv = "^1.0.1"
+
+# --- Database ---
+sqlalchemy = "^2.0.29"
+asyncpg = "^0.29.0"
+alembic = "^1.13.1"
+
+# --- Async ---
+aiohttp = "^3.9.3"
+
+# --- Security ---
+python-jose = "^3.3.0"
+passlib = "^1.7.4"
+bcrypt = "^4.1.2"
+
+# --- Utils ---
+pydantic = "^2.6.4"
+pydantic-settings = "^2.3.1"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.3.0"
+isort = "^5.13.2"
+pytest = "^8.0.2"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.ruff]
-line-length = 128
-
-[tool.ruff.lint]
-extend-select = ["W", "E", "I"]
-preview = true
