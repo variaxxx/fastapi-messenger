@@ -11,10 +11,11 @@ async def init():
             text("""
             CREATE TABLE IF NOT EXISTS users (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                email VARCHAR(100) UNIQUE NOT NULL,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                displayed_name VARCHAR(50) NOT NULL,
-                avatar_url VARCHAR(200),
+                google_id VARCHAR(255) UNIQUE NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                username VARCHAR(255) UNIQUE NOT NULL,
+                displayed_name VARCHAR(50),
+                avatar_url VARCHAR(255),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
@@ -73,7 +74,9 @@ async def init():
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
                 url VARCHAR(500) NOT NULL,
-                type TEXT NOT NULL CHECK (type IN ('photo', 'video', 'document')),
+                type TEXT NOT NULL CHECK (
+                    type IN ('photo', 'video', 'document')
+                ),
                 size_bytes INT NOT NULL CHECK (size_bytes > 0),
                 filename VARCHAR(255) NOT NULL
             );
