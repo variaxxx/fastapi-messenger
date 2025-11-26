@@ -1,36 +1,45 @@
-from datetime import datetime, timedelta
-from typing import Optional
-import uuid
+from datetime import datetime, timedelta, timezone
 
-from jose import jwt, JWTError
-from fastapi import HTTPException, status
+from fastapi import HTTPException
+from jose import JWTError, jwt
 
-from app.core.config import settings
+from src.core.config import settings
+from src.schemas.auth import TokenPayload
 
 
 def create_access_token(user_id: int) -> str:
-    payload = {
-        "sub": str(user_id),
-        "type": "access",
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload: TokenPayload = {
+        "user": {"id": user_id},
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc)
+        + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(
+        payload, settings.JWT_ACCESS_SECRET, algorithm=settings.JWT_ALGORITHM
+    )
 
 
 def create_refresh_token(user_id: int) -> str:
     payload = {
-        "sub": str(user_id),
-        "type": "refresh",
-        "jti": str(uuid.uuid4()),
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        "user": {"id": user_id},
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc)
+        + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(
+        payload, settings.JWT_REFRESH_SECRET, algorithm=settings.JWT_ALGORITHM
+    )
 
 
-def decode_jwt(token: str) -> dict:
+def decode_jwt(token: str, is_refresh_token: bool = False) -> dict:
     try:
-        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        secret = (
+            settings.JWT_REFRESH_SECRET
+            if is_refresh_token
+            else settings.JWT_ACCESS_SECRET
+        )
+        return jwt.decode(
+            token, secret, algorithms=[settings.JWT_ALGORITHM]
+        )
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(401, "Invalid token")

@@ -1,18 +1,30 @@
+from sqlalchemy import Result, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
-from app.models.blacklisted_token import BlacklistedToken
 
 
-class TokenBlacklistQueries:
+async def is_blacklisted(db: AsyncSession, token: str) -> bool:
+    res: Result = await db.execute(
+        text("""
+        SELECT t.token
+        FROM blacklisted_refresh_tokens t
+        WHERE t.token = :token;
+    """),
+        {"token": token},
+    )
+    row = res.mappings().first()
+    return row is not None
 
-    @staticmethod
-    async def is_blacklisted(session: AsyncSession, jti: str) -> bool:
-        res = await session.execute(select(BlacklistedToken).where(BlacklistedToken.jti == jti))
-        return res.scalars().first() is not None
 
-    @staticmethod
-    async def blacklist(session: AsyncSession, jti: str, exp_datetime):
-        token = BlacklistedToken(jti=jti, expired_at=exp_datetime)
-        session.add(token)
-        await session.flush()
+async def blacklist(db: AsyncSession, token: str, user_id: str):
+    try:
+        await db.execute(
+            text("""
+            INSERT INTO blacklisted_refresh_tokens (token, user_id)
+            VALUES (:token, :user_id);
+        """),
+            {"token": token, "user_id": user_id},
+        )
+        return True
+    except IntegrityError:
+        await db.rollback()

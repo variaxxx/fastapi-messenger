@@ -1,9 +1,27 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
-class UserOut(BaseModel):
-    id: int
-    username: str
-    email: str
 
-    class Config:
-        from_attributes = True
+class CreateUser(BaseModel):
+    email: str
+    username: str
+    google_id: str
+
+
+class UserInfo(BaseModel):
+    id: str
+    email: str
+    username: str
+    google_id: str
+    displayed_name: str
+    avatar_url: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserInfoDto(BaseModel):
+    id: str
+    username: str
+    displayed_name: str
+    avatar_url: str

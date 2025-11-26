@@ -1,27 +1,56 @@
+from sqlalchemy import Result, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.models.user import User
+
+from src.schemas.user import CreateUser, UserInfo
 
 
-class UserQueries:
+async def get_by_id(db: AsyncSession, user_id: int) -> UserInfo:
+    res: Result = await db.execute(
+        text("""
+        SELECT *
+        FROM users u
+        WHERE u.id = :user_id;
+    """),
+        {"user_id": user_id},
+    )
+    return res.mappings().first()
 
-    @staticmethod
-    async def get_by_id(session: AsyncSession, user_id: int):
-        res = await session.execute(select(User).where(User.id == user_id))
-        return res.scalars().first()
 
-    @staticmethod
-    async def get_by_google_id(session: AsyncSession, google_id: str):
-        res = await session.execute(select(User).where(User.google_id == google_id))
-        return res.scalars().first()
+async def get_by_google_id(db: AsyncSession, google_id: str):
+    res: Result = await db.execute(
+        text("""
+        SELECT *
+        FROM users u
+        WHERE u.google_id = :google_id;
+    """),
+        {"google_id": google_id},
+    )
+    return res.mappings().first()
 
-    @staticmethod
-    async def get_by_email(session: AsyncSession, email: str):
-        res = await session.execute(select(User).where(User.email == email))
-        return res.scalars().first()
 
-    @staticmethod
-    async def create(session: AsyncSession, user: User):
-        session.add(user)
-        await session.flush()
-        return user
+async def get_by_email(db: AsyncSession, email: str):
+    res: Result = await db.execute(
+        text("""
+        SELECT *
+        FROM user u
+        WHERE u.email = :email;
+    """),
+        {"email": email},
+    )
+    return res.mappings().first()
+
+
+async def create(db: AsyncSession, user: CreateUser) -> UserInfo:
+    res: Result = await db.execute(
+        text("""
+        INSERT INTO users (email, username, google_id)
+        VALUES (:email, :username, :google_id)
+        RETURNING *;
+    """),
+        {
+            "email": user.email,
+            "username": user.username,
+            "google_id": user.google_id,
+        },
+    )
+    return res.mappings().first()
