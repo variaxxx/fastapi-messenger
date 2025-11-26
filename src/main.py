@@ -1,12 +1,18 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from src.core.config import settings
-from src.response import ApiResponse, ResponseStructure
+from src.exception_handers import (
+    http_exception_handler,
+    validation_exception_handler,
+)
+from src.response import (
+    ApiResponse,
+)
 from src.routers import routers
 
 logging.basicConfig(
@@ -40,9 +46,5 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    content = ResponseStructure(
-        status=exc.status_code, message=exc.detail, data=None
-    ).model_dump()
-    return JSONResponse(content=content, status_code=exc.status_code)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
