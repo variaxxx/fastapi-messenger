@@ -7,7 +7,7 @@ from src.core.config import settings
 from src.schemas.auth import TokenPayload
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: str) -> str:
     payload: TokenPayload = {
         "user": {"id": user_id},
         "iat": datetime.now(timezone.utc),
@@ -19,7 +19,7 @@ def create_access_token(user_id: int) -> str:
     )
 
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: str) -> str:
     payload = {
         "user": {"id": user_id},
         "iat": datetime.now(timezone.utc),

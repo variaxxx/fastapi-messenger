@@ -89,7 +89,7 @@ async def change_avatar(
 
     if old_userinfo.avatar_url:
         remove_from_minio(
-            old_userinfo["avatar_url"].split("/")[-1],
+            old_userinfo.avatar_url.split("/")[-1],
             settings.ASSETS_BUCKET_NAME,
         )
 
