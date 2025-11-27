@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import decode_jwt
 from src.db.database import async_session_maker
-from src.schemas.auth import TokenPayload
+from src.schemas.auth import TokenUserInfo
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
@@ -13,10 +13,10 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-def auth_guard(request: Request) -> TokenPayload:
+def auth_guard(request: Request) -> TokenUserInfo:
     token = extract_bearer_token(request)
     payload = decode_jwt(token)
-    return payload
+    return TokenUserInfo.model_validate(payload.get("user"))
 
 
 def extract_bearer_token(request: Request) -> str:

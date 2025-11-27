@@ -13,9 +13,10 @@ async def init():
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 google_id VARCHAR(255) UNIQUE NOT NULL,
                 email VARCHAR(255) UNIQUE NOT NULL,
-                username VARCHAR(255) UNIQUE NOT NULL,
+                username VARCHAR(32) UNIQUE NOT NULL,
                 displayed_name VARCHAR(50),
                 avatar_url VARCHAR(255),
+                bio VARCHAR(255),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
@@ -37,7 +38,7 @@ async def init():
             CREATE TABLE IF NOT EXISTS chats (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                type TEXT NOT NULL CHECK (type IN ('direct', 'group')),
+                type VARCHAR(16) NOT NULL CHECK (type IN ('direct', 'group')),
                 title VARCHAR(255)
             );
         """)
@@ -51,7 +52,7 @@ async def init():
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 chat_id UUID REFERENCES chats(id),
                 sender_id UUID REFERENCES users(id),
-                text TEXT NOT NULL,
+                text VARCHAR(1000) NOT NULL,
                 replies_to UUID REFERENCES messages(id) ON DELETE SET NULL
             );
         """)
@@ -62,7 +63,7 @@ async def init():
             CREATE TABLE IF NOT EXISTS chat_members (
                 chat_id UUID REFERENCES chats(id),
                 user_id UUID REFERENCES users(id),
-                role TEXT NOT NULL CHECK (role IN ('member', 'admin')),
+                role VARCHAR(16) NOT NULL CHECK (role IN ('member', 'admin')),
                 PRIMARY KEY(chat_id, user_id)
             );
         """)

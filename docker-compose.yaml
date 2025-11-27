@@ -15,5 +15,23 @@ services:
     ports:
       - "5433:5432"
 
+  minio:
+    image: minio/minio:latest
+    volumes:
+      - ./s3/data:/data
+    ports:
+      - ${MINIO_PORT}:9000
+      - ${MINIO_PANEL_PORT}:9001
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_USE_SSL: false
+    command: server --console-address ":9001" /data/
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
 networks:
   usersdomain:

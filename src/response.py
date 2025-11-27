@@ -1,4 +1,4 @@
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 
 from fastapi.responses import JSONResponse
 from pydantic.generics import GenericModel
@@ -9,7 +9,7 @@ T = TypeVar("T")
 class ResponseStructure(GenericModel, Generic[T]):
     status: int = 200
     message: str
-    data: T
+    data: Optional[T] = None
 
 
 class ApiResponse(JSONResponse):

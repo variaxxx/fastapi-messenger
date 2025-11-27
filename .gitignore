@@ -3,4 +3,5 @@ __pycache__/
 .vscode/
 .ruff_cache/
 
+s3/
 .env
