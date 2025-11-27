@@ -31,8 +31,3 @@ async def logout(
     session: AsyncSession = Depends(get_async_session),
 ):
     return await auth_service.logout(session, token)
-
-
-# @router.get("/me")
-# def me(user: Annotated[TokenPayload, Depends(auth_guard)]):
-#     return "me"

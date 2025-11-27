@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import settings
+from src.db.minio import create_bucket
 from src.exception_handers import (
     http_exception_handler,
     validation_exception_handler,
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    create_bucket("assets")
+
     logger.info("Application started...")
     logger.info(
         f"Link for auth: https://accounts.google.com/o/oauth2/v2/auth?client_id={settings.GOOGLE_CLIENT_ID}&redirect_uri={settings.GOOGLE_REDIRECT_URI}&response_type=code&scope=openid%20email%20profile&state=random_state_string&access_type=offline&prompt=consent"
