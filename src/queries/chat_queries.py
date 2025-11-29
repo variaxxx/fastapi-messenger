@@ -5,7 +5,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.schemas.chat import ChatInfo, ChatInfoDto, MessageInfoDto
+from src.schemas.chat import (
+    ChatInfo,
+    ChatInfoDto,
+    ChatMemberDto,
+    MessageInfoDto,
+)
 
 
 async def get_chats_for_user(
@@ -120,7 +125,9 @@ async def get_messages_for_chat(
 ) -> List[MessageInfoDto]:
     q = text(
         """
-        SELECT id, created_at, updated_at, chat_id, sender_id, text, replies_to
+        SELECT
+            id, created_at, updated_at, chat_id,
+            sender_id, text, is_edited, replies_to
         FROM messages
         WHERE chat_id = :chat_id
         ORDER BY created_at DESC
@@ -149,7 +156,7 @@ async def send_message(
             VALUES (:chat_id, :sender_id, :text, :replies_to)
             RETURNING
                 id, created_at, updated_at, chat_id,
-                sender_id, text, replies_to;
+                sender_id, text, is_edited, replies_to;
             """
         )
         result = await db.execute(
@@ -208,18 +215,53 @@ async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
     result = await db.execute(q, {"chat_id": chat_id})
     return result.scalar()
 
-async def update_chat_title(db: AsyncSession, chat_id: str, title: str) -> ChatInfo:
+
+async def rename_chat(
+    db: AsyncSession, editor_id: str, chat_id: str, title: str
+) -> ChatInfoDto:
     q = text("""
-        UPDATE chats
-        SET title = :title, updated_at = NOW()
-        WHERE id = :chat_id
-        RETURNING id, created_at, type, title;
+        WITH updated_chat AS (
+            UPDATE chats
+            SET
+                title = :title,
+                updated_at = NOW()
+            WHERE id = :chat_id AND type = 'group'
+            RETURNING id, type, title
+        ),
+        last_message AS (
+            SELECT *
+            FROM messages
+            WHERE chat_id = :chat_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ),
+        chat_member AS (
+            SELECT
+                role
+            FROM chat_members
+            WHERE chat_id = :chat_id AND user_id = :editor_id
+            LIMIT 1
+        )
+        SELECT
+            uc.*,
+            cm.role,
+            lm.id AS last_message_id,
+            lm.text AS last_message_text,
+            lm.created_at AS last_message_date,
+            lm.sender_id AS last_message_sender
+        FROM updated_chat uc
+            JOIN chat_member AS cm ON TRUE
+            LEFT JOIN last_message AS lm ON TRUE;
     """)
-    result = await db.execute(q, {"chat_id": chat_id, "title": title})
+    result = await db.execute(
+        q, {"chat_id": chat_id, "title": title, "editor_id": editor_id}
+    )
+
     row = result.mappings().first()
     if not row:
         raise HTTPException(404, "Chat not found")
-    return ChatInfo.model_validate(row)
+
+    return ChatInfoDto.model_validate(row)
 
 
 async def update_message(
@@ -227,28 +269,66 @@ async def update_message(
 ) -> MessageInfoDto:
     q = text("""
         UPDATE messages
-        SET text = :text, updated_at = NOW()
+        SET
+            text = :text,
+            updated_at = NOW(),
+            is_edited = TRUE
         WHERE id = :id AND sender_id = :user_id
-        RETURNING id, created_at, updated_at, chat_id, sender_id, text, replies_to;
+        RETURNING
+            id, created_at, updated_at,
+            chat_id, sender_id, text, is_edited, replies_to;
     """)
     result = await db.execute(
         q, {"id": message_id, "user_id": user_id, "text": text_}
     )
     row = result.mappings().first()
+
     if not row:
         raise HTTPException(404, "сообщение не найдено")
+
     return MessageInfoDto.model_validate(row)
 
 
-async def get_chat_members(db: AsyncSession, chat_id: str):
+async def get_chat_members(
+    db: AsyncSession, chat_id: str, limit: int, offset: int
+):
     q = text("""
-        SELECT cm.user_id, cm.role, u.displayed_name
-        FROM chat_members cm
-        JOIN users u ON u.id = cm.user_id
-        WHERE cm.chat_id = :chat_id;
+        WITH total_count AS (
+            SELECT COUNT(*) as total
+            FROM chat_members
+            WHERE chat_id = :chat_id
+        ),
+        paged AS (
+        SELECT
+                cm.user_id::text AS id,
+                cm.role,
+                u.displayed_name,
+                u.avatar_url
+            FROM chat_members cm
+                JOIN users u ON u.id = cm.user_id
+            WHERE cm.chat_id = :chat_id
+            ORDER BY cm.user_id
+            OFFSET :offset
+            LIMIT :limit
+        )
+        SELECT
+            p.*,
+            tc.total
+        FROM paged p
+            RIGHT JOIN total_count tc ON TRUE;
     """)
-    result = await db.execute(q, {"chat_id": chat_id})
-    return result.mappings().all()
+    result = await db.execute(
+        q, {"chat_id": chat_id, "offset": offset, "limit": limit}
+    )
+    rows = result.mappings().all()
+    return [
+        [
+            ChatMemberDto.model_validate(row)
+            for row in rows
+            if row["id"] is not None
+        ],
+        rows[0].total,
+    ]
 
 
 async def remove_chat_member(

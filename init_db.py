@@ -38,6 +38,7 @@ async def init():
             CREATE TABLE IF NOT EXISTS chats (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 type VARCHAR(16) NOT NULL CHECK (type IN ('direct', 'group')),
                 title VARCHAR(255)
             );
@@ -53,6 +54,7 @@ async def init():
                 chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
                 sender_id UUID REFERENCES users(id),
                 text VARCHAR(1000) NOT NULL,
+                is_edited BOOLEAN NOT NULL DEFAULT FALSE,
                 replies_to UUID REFERENCES messages(id) ON DELETE SET NULL
             );
         """)
@@ -61,8 +63,8 @@ async def init():
         await conn.execute(
             text("""
             CREATE TABLE IF NOT EXISTS chat_members (
-                chat_id UUID REFERENCES chats(id),
-                user_id UUID REFERENCES users(id),
+                chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
                 role VARCHAR(16) NOT NULL CHECK (role IN ('member', 'admin')),
                 PRIMARY KEY(chat_id, user_id)
             );

@@ -40,8 +40,20 @@ class MessageInfoDto(BaseModel):
     chat_id: UUID4
     sender_id: UUID4
     text: str
+    is_edited: bool
     replies_to: Optional[UUID4]
 
 
-class MessagesCountDto(BaseModel):
-    total: int
+class RenameChatDto(BaseModel):
+    new_title: str
+
+
+class EditMessageDto(BaseModel):
+    text: str
+
+
+class ChatMemberDto(BaseModel):
+    id: str
+    displayed_name: str | None
+    avatar_url: str | None
+    role: str = Field(..., pattern="^(member|admin)$")

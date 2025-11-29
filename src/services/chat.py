@@ -13,6 +13,13 @@ from src.schemas.chat import (
 )
 
 
+def validate_chat_title(title: str) -> bool:
+    title = title.strip()
+    if not 1 <= len(title) <= 100:
+        return False
+    return True
+
+
 async def get_chats_for_user(
     db: AsyncSession, user_id: str, limit: int = 20, offset: int = 0
 ) -> List[ChatInfoDto]:
@@ -26,6 +33,10 @@ async def create_chat(
 ) -> dict:
     if payload.type == "group" and not payload.title:
         raise HTTPException(400, "Title is required for groups")
+    title = payload.title.strip()
+    if payload.type == "group" and not validate_chat_title(title):
+        raise HTTPException(403, "Invalid chat title")
+
     if (
         payload.type == "direct"
         and len([member for member in payload.members if member != creator_id])
@@ -36,11 +47,14 @@ async def create_chat(
     chat: ChatInfo = await chat_queries.create_chat(
         db,
         type_=payload.type,
-        title=(payload.title if payload.type != "direct" else None),
+        title=(title if payload.type != "direct" else None),
     )
 
     await chat_queries.add_chat_member(
-        db, chat_id=chat.id, user_id=creator_id, role="admin"
+        db,
+        chat_id=chat.id,
+        user_id=creator_id,
+        role=("admin" if payload.type == "group" else "member"),
     )
     # добавляем остальных участников как member (если есть)
     for uid in payload.members:
@@ -89,8 +103,17 @@ async def get_chats_total(db: AsyncSession, user_id: str) -> int:
 async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
     return await chat_queries.get_messages_total(db=db, chat_id=chat_id)
 
-async def rename_chat(db: AsyncSession, chat_id: str, title: str) -> ChatInfo:
-    return await chat_queries.update_chat_title(db, chat_id, title)
+
+async def rename_chat(
+    db: AsyncSession, editor_id: str, chat_id: str, title: str
+) -> ChatInfoDto:
+    title = title.strip()
+    if not validate_chat_title(title):
+        raise HTTPException(403, "Invalid chat title")
+
+    return await chat_queries.rename_chat(
+        db, chat_id=chat_id, editor_id=editor_id, title=title
+    )
 
 
 async def edit_message(
@@ -101,8 +124,12 @@ async def edit_message(
     )
 
 
-async def list_members(db: AsyncSession, chat_id: str):
-    return await chat_queries.get_chat_members(db, chat_id)
+async def list_members(
+    db: AsyncSession, chat_id: str, limit: int = 1000, offset: int = 0
+):
+    return await chat_queries.get_chat_members(
+        db, chat_id, limit=limit, offset=offset
+    )
 
 
 async def delete_member(db: AsyncSession, chat_id: str, target_user_id: str):

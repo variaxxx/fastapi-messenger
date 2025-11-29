@@ -11,8 +11,11 @@ from src.schemas.auth import TokenUserInfo
 from src.schemas.chat import (
     ChatInfo,
     ChatInfoDto,
+    ChatMemberDto,
     CreateChatDto,
+    EditMessageDto,
     MessageInfoDto,
+    RenameChatDto,
     SendMessageDto,
 )
 
@@ -107,51 +110,54 @@ async def api_send_message(
     )
     return message
 
+
 @router.patch("/{chat_id}", response_model=ChatInfoDto)
 async def api_rename_chat(
     chat_id: UUID4,
-    title: str,
+    dto: RenameChatDto,
     user: Annotated[TokenUserInfo, Depends(auth_guard)],
     db: Annotated[AsyncSession, Depends(get_async_session)],
 ):
     if not await chats_service.is_user_in_chat(db, chat_id, user.id):
-        raise HTTPException(403, "вы не участник этого чата")
+        raise HTTPException(403, "You are not a member of this chat")
 
-    updated = await chats_service.rename_chat(db, chat_id, title)
-    return ChatInfoDto(
-        id=updated.id,
-        type=updated.type,
-        title=updated.title,
-        role="admin",
-        last_message_id=None,
-        last_message_text=None,
-        last_message_date=None,
-        last_message_sender=None,
+    return await chats_service.rename_chat(
+        db, editor_id=user.id, chat_id=chat_id, title=dto.new_title
     )
 
 
 @router.patch("/messages/{message_id}", response_model=MessageInfoDto)
 async def api_edit_message(
     message_id: UUID4,
-    text: str,
+    dto: EditMessageDto,
     user: Annotated[TokenUserInfo, Depends(auth_guard)],
     db: Annotated[AsyncSession, Depends(get_async_session)],
 ):
     return await chats_service.edit_message(
-        db, message_id=str(message_id), user_id=user.id, text=text
+        db, message_id=str(message_id), user_id=user.id, text=dto.text
     )
 
 
-@router.get("/{chat_id}/members")
+@router.get(
+    "/{chat_id}/members", response_model=FindManyResponse[ChatMemberDto]
+)
 async def api_get_members(
     chat_id: UUID4,
     user: Annotated[TokenUserInfo, Depends(auth_guard)],
     db: Annotated[AsyncSession, Depends(get_async_session)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     if not await chats_service.is_user_in_chat(db, chat_id, user.id):
-        raise HTTPException(403, "вы не участник этого чата")
+        raise HTTPException(403, "You are not a member of this chat")
 
-    return await chats_service.list_members(db, chat_id=str(chat_id))
+    [members, total] = await chats_service.list_members(
+        db, chat_id=str(chat_id), limit=limit, offset=offset
+    )
+
+    return FindManyResponse[ChatMemberDto](
+        total=total, count=len(members), items=members
+    )
 
 
 @router.delete("/{chat_id}/members/{user_id}", status_code=204)
@@ -162,10 +168,15 @@ async def api_delete_member(
     db: Annotated[AsyncSession, Depends(get_async_session)],
 ):
     # Только админ может удалять
-    members = await chats_service.list_members(db, chat_id=str(chat_id))
-    me = next((m for m in members if str(m["user_id"]) == user.id), None)
-    if not me or me["role"] != "admin":
-        raise HTTPException(403, "только админы могут кикать")
+    [members, total] = await chats_service.list_members(
+        db, chat_id=str(chat_id)
+    )
+    me = [member for member in members if member.id == user.id]
+    if not me or me[0].role != "admin":
+        raise HTTPException(403, "Forbidden")
+
+    if str(user_id) == (user.id):
+        raise HTTPException(400, "You can`t kick yourself")
 
     await chats_service.delete_member(
         db, chat_id=str(chat_id), target_user_id=str(user_id)
