@@ -88,3 +88,24 @@ async def get_chats_total(db: AsyncSession, user_id: str) -> int:
 
 async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
     return await chat_queries.get_messages_total(db=db, chat_id=chat_id)
+
+async def rename_chat(db: AsyncSession, chat_id: str, title: str) -> ChatInfo:
+    return await chat_queries.update_chat_title(db, chat_id, title)
+
+
+async def edit_message(
+    db: AsyncSession, message_id: str, user_id: str, text: str
+) -> MessageInfoDto:
+    return await chat_queries.update_message(
+        db, message_id=message_id, user_id=user_id, text_=text
+    )
+
+
+async def list_members(db: AsyncSession, chat_id: str):
+    return await chat_queries.get_chat_members(db, chat_id)
+
+
+async def delete_member(db: AsyncSession, chat_id: str, target_user_id: str):
+    return await chat_queries.remove_chat_member(
+        db, chat_id=chat_id, user_id=target_user_id
+    )

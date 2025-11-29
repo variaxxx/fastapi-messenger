@@ -106,3 +106,67 @@ async def api_send_message(
         db, chat_id=chat_id, payload=payload, sender_id=user.id
     )
     return message
+
+@router.patch("/{chat_id}", response_model=ChatInfoDto)
+async def api_rename_chat(
+    chat_id: UUID4,
+    title: str,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    if not await chats_service.is_user_in_chat(db, chat_id, user.id):
+        raise HTTPException(403, "вы не участник этого чата")
+
+    updated = await chats_service.rename_chat(db, chat_id, title)
+    return ChatInfoDto(
+        id=updated.id,
+        type=updated.type,
+        title=updated.title,
+        role="admin",
+        last_message_id=None,
+        last_message_text=None,
+        last_message_date=None,
+        last_message_sender=None,
+    )
+
+
+@router.patch("/messages/{message_id}", response_model=MessageInfoDto)
+async def api_edit_message(
+    message_id: UUID4,
+    text: str,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    return await chats_service.edit_message(
+        db, message_id=str(message_id), user_id=user.id, text=text
+    )
+
+
+@router.get("/{chat_id}/members")
+async def api_get_members(
+    chat_id: UUID4,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    if not await chats_service.is_user_in_chat(db, chat_id, user.id):
+        raise HTTPException(403, "вы не участник этого чата")
+
+    return await chats_service.list_members(db, chat_id=str(chat_id))
+
+
+@router.delete("/{chat_id}/members/{user_id}", status_code=204)
+async def api_delete_member(
+    chat_id: UUID4,
+    user_id: UUID4,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    # Только админ может удалять
+    members = await chats_service.list_members(db, chat_id=str(chat_id))
+    me = next((m for m in members if str(m["user_id"]) == user.id), None)
+    if not me or me["role"] != "admin":
+        raise HTTPException(403, "только админы могут кикать")
+
+    await chats_service.delete_member(
+        db, chat_id=str(chat_id), target_user_id=str(user_id)
+    )

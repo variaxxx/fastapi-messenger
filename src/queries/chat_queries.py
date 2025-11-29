@@ -207,3 +207,55 @@ async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
     )
     result = await db.execute(q, {"chat_id": chat_id})
     return result.scalar()
+
+async def update_chat_title(db: AsyncSession, chat_id: str, title: str) -> ChatInfo:
+    q = text("""
+        UPDATE chats
+        SET title = :title, updated_at = NOW()
+        WHERE id = :chat_id
+        RETURNING id, created_at, type, title;
+    """)
+    result = await db.execute(q, {"chat_id": chat_id, "title": title})
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(404, "Chat not found")
+    return ChatInfo.model_validate(row)
+
+
+async def update_message(
+    db: AsyncSession, message_id: str, user_id: str, text_: str
+) -> MessageInfoDto:
+    q = text("""
+        UPDATE messages
+        SET text = :text, updated_at = NOW()
+        WHERE id = :id AND sender_id = :user_id
+        RETURNING id, created_at, updated_at, chat_id, sender_id, text, replies_to;
+    """)
+    result = await db.execute(
+        q, {"id": message_id, "user_id": user_id, "text": text_}
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(404, "сообщение не найдено")
+    return MessageInfoDto.model_validate(row)
+
+
+async def get_chat_members(db: AsyncSession, chat_id: str):
+    q = text("""
+        SELECT cm.user_id, cm.role, u.displayed_name
+        FROM chat_members cm
+        JOIN users u ON u.id = cm.user_id
+        WHERE cm.chat_id = :chat_id;
+    """)
+    result = await db.execute(q, {"chat_id": chat_id})
+    return result.mappings().all()
+
+
+async def remove_chat_member(
+    db: AsyncSession, chat_id: str, user_id: str
+) -> None:
+    q = text("""
+        DELETE FROM chat_members
+        WHERE chat_id = :chat_id AND user_id = :user_id;
+    """)
+    await db.execute(q, {"chat_id": chat_id, "user_id": user_id})
