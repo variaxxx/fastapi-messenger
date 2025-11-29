@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import UUID4
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import src.services.chat_service as chats_service
+import src.services.chat as chats_service
 from src.dependencies import auth_guard, get_async_session
 from src.response import FindManyResponse
 from src.schemas.auth import TokenUserInfo
