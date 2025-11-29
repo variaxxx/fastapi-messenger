@@ -1,38 +1,47 @@
-from pydantic import BaseModel, Field, UUID4
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import UUID4, BaseModel, Field
 
 
-class MessageCreate(BaseModel):
-    sender_id: Optional[UUID4] = None
+class ChatInfo(BaseModel):
+    id: UUID4
+    created_at: datetime
+    type: str = Field(..., pattern="^(direct|group)$")
+    title: str
+
+
+class ChatInfoDto(BaseModel):
+    id: UUID4
+    type: str = Field(..., pattern="^(direct|group)$")
+    title: str | None
+    role: str = Field(..., pattern="^(member|admin)$")
+    last_message_id: UUID4 | None
+    last_message_text: str | None
+    last_message_date: datetime | None
+    last_message_sender: UUID4 | None
+
+
+class CreateChatDto(BaseModel):
+    type: str = Field(..., pattern="^(direct|group)$")
+    title: Optional[str] = None
+    members: List[UUID4] = []
+
+
+class SendMessageDto(BaseModel):
     text: str = Field(..., min_length=1, max_length=1000)
     replies_to: Optional[UUID4] = None
 
 
-class MessageRead(BaseModel):
+class MessageInfoDto(BaseModel):
     id: UUID4
     created_at: datetime
     updated_at: datetime
-    chat_id: Optional[UUID4]
-    sender_id: Optional[UUID4]
+    chat_id: UUID4
+    sender_id: UUID4
     text: str
     replies_to: Optional[UUID4]
 
-    class Config:
-        orm_mode = True
 
-
-class ChatCreate(BaseModel):
-    type: str = Field(..., regex="^(direct|group)$")
-    title: Optional[str] = None
-    members: Optional[List[UUID4]] = []
-
-
-class ChatRead(BaseModel):
-    id: UUID4
-    created_at: datetime
-    type: str
-    title: Optional[str]
-
-    class Config:
-        orm_mode = True
+class MessagesCountDto(BaseModel):
+    total: int

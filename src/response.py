@@ -1,4 +1,4 @@
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, List, Optional, TypeVar
 
 from fastapi.responses import JSONResponse
 from pydantic.generics import GenericModel
@@ -10,6 +10,12 @@ class ResponseStructure(GenericModel, Generic[T]):
     status: int = 200
     message: str
     data: Optional[T] = None
+
+
+class FindManyResponse(GenericModel, Generic[T]):
+    total: int
+    count: int
+    items: List[T] = []
 
 
 class ApiResponse(JSONResponse):

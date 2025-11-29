@@ -1,84 +1,108 @@
-# src/routers/chats.py
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import UUID4
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.schemas.chat import ChatCreate, ChatRead, MessageCreate, MessageRead
-from src.services.chat_service import list_chats_for_user, create_group, get_messages, send_message
-from src.dependencies import get_async_session, auth_guard
+import src.services.chat_service as chats_service
+from src.dependencies import auth_guard, get_async_session
+from src.response import FindManyResponse
 from src.schemas.auth import TokenUserInfo
+from src.schemas.chat import (
+    ChatInfo,
+    ChatInfoDto,
+    CreateChatDto,
+    MessageInfoDto,
+    SendMessageDto,
+)
 
-from pydantic import parse_obj_as
-from uuid import UUID
-
-router = APIRouter(prefix="/chats", tags=["chats"])
+router = APIRouter(prefix="/chats", tags=["Chats"])
 
 
-@router.get("/", response_model=List[ChatRead])
+@router.get("/", response_model=FindManyResponse[ChatInfoDto])
 async def api_list_chats(
-    db: AsyncSession = Depends(get_async_session),
-    current_user: TokenUserInfo = Depends(auth_guard),
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    """
-    GET /chats - получить список чатов, где текущий пользователь — участник
-    """
-    chats = await list_chats_for_user(db, user_id=current_user.id)
-    # pydantic-валидация преобразует поля (например timestamps)
-    return parse_obj_as(List[ChatRead], chats)
+    chats = await chats_service.get_chats_for_user(
+        db, user_id=user.id, limit=limit, offset=offset
+    )
+    total = await chats_service.get_chats_total(db, user_id=user.id)
+    return FindManyResponse[ChatInfoDto](
+        total=total, count=len(chats), items=chats
+    )
 
 
-@router.post("/", response_model=ChatRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=ChatInfoDto, status_code=status.HTTP_201_CREATED
+)
 async def api_create_chat(
-    payload: ChatCreate,
-    db: AsyncSession = Depends(get_async_session),
-    current_user: TokenUserInfo = Depends(auth_guard),
+    payload: CreateChatDto,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
 ):
-    """
-    POST /chats - создать группу (type: 'group' или 'direct')
-    """
-    chat = await create_group(db, payload, creator_id=current_user.id)
-    return ChatRead.model_validate(chat)
+    chat: ChatInfo = await chats_service.create_chat(
+        db, payload, creator_id=user.id
+    )
+    return ChatInfoDto(
+        id=chat.id,
+        type=chat.type,
+        title=chat.title,
+        role="admin",
+        last_message_id=None,
+        last_message_date=None,
+        last_message_text=None,
+        last_message_sender=None,
+    )
 
 
-@router.get("/{chat_id}/messages", response_model=List[MessageRead])
+@router.get(
+    "/{chat_id}/messages", response_model=FindManyResponse[MessageInfoDto]
+)
 async def api_get_messages(
-    chat_id: UUID = Path(...),
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_async_session),
-    current_user: TokenUserInfo = Depends(auth_guard),
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    chat_id: UUID4,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    """
-    GET /chats/{chat_id}/messages - получить сообщения чата
-    Только участники могут видеть сообщения.
-    """
-    # проверка участия — запроса на список чатов юзера будет достаточно
-    chats = await list_chats_for_user(db, user_id=current_user.id)
-    if not any(str(c["id"]) == str(chat_id) for c in chats):
-        raise HTTPException(status_code=403, detail="You are not a member of this chat")
+    if not await chats_service.is_user_in_chat(
+        db, chat_id=chat_id, user_id=user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="You are not a member of this chat"
+        )
 
-    messages = await get_messages(db, chat_id=str(chat_id), limit=limit, offset=offset)
-    if messages is None:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    return parse_obj_as(List[MessageRead], messages)
+    messages = await chats_service.get_messages(
+        db, chat_id=str(chat_id), limit=limit, offset=offset
+    )
+    total = await chats_service.get_messages_total(db=db, chat_id=chat_id)
+    return FindManyResponse[MessageInfoDto](
+        total=total, count=len(messages), items=messages
+    )
 
 
-@router.post("/{chat_id}/message", response_model=MessageRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{chat_id}/message",
+    response_model=MessageInfoDto,
+    status_code=status.HTTP_201_CREATED,
+)
 async def api_send_message(
-    chat_id: UUID,
-    payload: MessageCreate,
-    db: AsyncSession = Depends(get_async_session),
-    current_user: TokenUserInfo = Depends(auth_guard),
+    chat_id: UUID4,
+    payload: SendMessageDto,
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
 ):
-    """
-    POST /chats/{chat_id}/message - страховочный эндпоинт для отправки сообщения
-    """
-    # проверяем, что пользователь — участник чата
-    chats = await list_chats_for_user(db, user_id=current_user.id)
-    if not any(str(c["id"]) == str(chat_id) for c in chats):
-        raise HTTPException(status_code=403, detail="You are not a member of this chat")
+    if not await chats_service.is_user_in_chat(
+        db, chat_id=chat_id, user_id=user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="You are not a member of this chat"
+        )
 
-    message = await send_message(db, chat_id=str(chat_id), payload=payload, sender_id=current_user.id)
-    if message is None:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    return MessageRead.model_validate(message)
+    message: MessageInfoDto = await chats_service.send_message(
+        db, chat_id=chat_id, payload=payload, sender_id=user.id
+    )
+    return message

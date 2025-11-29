@@ -50,7 +50,7 @@ async def init():
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                chat_id UUID REFERENCES chats(id),
+                chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
                 sender_id UUID REFERENCES users(id),
                 text VARCHAR(1000) NOT NULL,
                 replies_to UUID REFERENCES messages(id) ON DELETE SET NULL
