@@ -57,3 +57,7 @@ class ChatMemberDto(BaseModel):
     displayed_name: str | None
     avatar_url: str | None
     role: str = Field(..., pattern="^(member|admin)$")
+
+
+class InviteChatMembersDto(BaseModel):
+    members: List[UUID4] = []

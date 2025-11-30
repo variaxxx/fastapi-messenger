@@ -299,7 +299,7 @@ async def get_chat_members(
             WHERE chat_id = :chat_id
         ),
         paged AS (
-        SELECT
+            SELECT
                 cm.user_id::text AS id,
                 cm.role,
                 u.displayed_name,
@@ -367,3 +367,32 @@ async def delete_message(
     result = await db.execute(q, {"message_id": message_id, "user_id": user_id})
     if not result.scalar():
         raise HTTPException(404, "Member not found")
+
+
+async def add_chat_members(
+    db: AsyncSession, chat_id: str, user_ids: List[str]
+) -> List[ChatMemberDto]:
+    q = text("""
+        WITH valid_users AS (
+            SELECT id
+            FROM users
+            WHERE id = ANY(:user_ids)
+        ),
+        inserted AS (
+            INSERT INTO chat_members (chat_id, user_id, role)
+            SELECT :chat_id, id, 'member'
+            FROM valid_users
+            ON CONFLICT DO NOTHING
+            RETURNING user_id, role
+        )
+        SELECT
+            u.id::text,
+            u.displayed_name,
+            u.avatar_url,
+            i.role
+        FROM inserted i
+            JOIN users u ON u.id = i.user_id;
+    """)
+    result = await db.execute(q, {"user_ids": user_ids, "chat_id": chat_id})
+    rows = result.mappings().all()
+    return [ChatMemberDto.model_validate(row) for row in rows]

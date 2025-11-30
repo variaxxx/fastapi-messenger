@@ -14,6 +14,7 @@ from src.schemas.chat import (
     ChatMemberDto,
     CreateChatDto,
     EditMessageDto,
+    InviteChatMembersDto,
     MessageInfoDto,
     RenameChatDto,
     SendMessageDto,
@@ -182,6 +183,31 @@ async def api_get_members(
     )
 
 
+@router.post(
+    "/{chat_id}/members", response_model=FindManyResponse[ChatMemberDto]
+)
+async def api_invite_members(
+    chat_id: UUID4,
+    dto: InviteChatMembersDto,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    if not chats_service.is_user_chat_admin(
+        db, chat_id=chat_id, user_id=user.id
+    ):
+        raise HTTPException(403, "Forbidden")
+
+    if not dto.members:
+        raise HTTPException(400, "At least one member should be provided")
+
+    members = await chats_service.invite_members(
+        db, members=dto.members, chat_id=chat_id
+    )
+    return FindManyResponse[ChatMemberDto](
+        total=len(members), count=len(members), items=members
+    )
+
+
 @router.delete(
     "/{chat_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT
 )
@@ -191,12 +217,9 @@ async def api_delete_member(
     user: Annotated[TokenUserInfo, Depends(auth_guard)],
     db: Annotated[AsyncSession, Depends(get_async_session)],
 ):
-    # Только админ может удалять
-    [members, total] = await chats_service.list_members(
-        db, chat_id=str(chat_id)
-    )
-    me = [member for member in members if member.id == user.id]
-    if not me or me[0].role != "admin":
+    if not chats_service.is_user_chat_admin(
+        db, chat_id=chat_id, user_id=user.id
+    ):
         raise HTTPException(403, "Forbidden")
 
     if str(user_id) == (user.id):

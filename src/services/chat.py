@@ -7,6 +7,7 @@ import src.queries.chat_queries as chat_queries
 from src.schemas.chat import (
     ChatInfo,
     ChatInfoDto,
+    ChatMemberDto,
     CreateChatDto,
     MessageInfoDto,
     SendMessageDto,
@@ -56,7 +57,10 @@ async def create_chat(
         user_id=creator_id,
         role=("admin" if payload.type == "group" else "member"),
     )
+
+    # TODO: minimize db requests
     # добавляем остальных участников как member (если есть)
+    await chat_queries.add_chat_members()
     for uid in payload.members:
         # не перезаписываем роль создателя
         if str(uid) == str(creator_id):
@@ -126,19 +130,43 @@ async def edit_message(
 
 async def list_members(
     db: AsyncSession, chat_id: str, limit: int = 1000, offset: int = 0
-):
+) -> List[ChatMemberDto]:
     return await chat_queries.get_chat_members(
         db, chat_id, limit=limit, offset=offset
     )
 
 
-async def delete_member(db: AsyncSession, chat_id: str, target_user_id: str):
+async def delete_member(
+    db: AsyncSession, chat_id: str, target_user_id: str
+) -> None:
     return await chat_queries.remove_chat_member(
         db, chat_id=chat_id, user_id=target_user_id
     )
 
 
-async def delete_message(db: AsyncSession, message_id: str, user_id: str):
+async def delete_message(
+    db: AsyncSession, message_id: str, user_id: str
+) -> None:
     return await chat_queries.delete_message(
         db, message_id=message_id, user_id=user_id
     )
+
+
+async def invite_members(db: AsyncSession, members: List[str], chat_id: str):
+    members = await chat_queries.add_chat_members(
+        db, chat_id=chat_id, user_ids=members
+    )
+
+    if not members:
+        raise HTTPException(400, "No valid user IDs provided")
+    return members
+
+
+async def is_user_chat_admin(
+    db: AsyncSession, chat_id: str, user_id: str
+) -> bool:
+    [members, total] = await list_members(db, chat_id=str(chat_id))
+    me = [member for member in members if member.id == user_id]
+    if not me or me[0].role != "admin":
+        return False
+    return True
