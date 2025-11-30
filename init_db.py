@@ -55,6 +55,7 @@ async def init():
                 sender_id UUID REFERENCES users(id),
                 text VARCHAR(1000) NOT NULL,
                 is_edited BOOLEAN NOT NULL DEFAULT FALSE,
+                is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
                 replies_to UUID REFERENCES messages(id) ON DELETE SET NULL
             );
         """)

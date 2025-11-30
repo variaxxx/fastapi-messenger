@@ -136,3 +136,9 @@ async def delete_member(db: AsyncSession, chat_id: str, target_user_id: str):
     return await chat_queries.remove_chat_member(
         db, chat_id=chat_id, user_id=target_user_id
     )
+
+
+async def delete_message(db: AsyncSession, message_id: str, user_id: str):
+    return await chat_queries.delete_message(
+        db, message_id=message_id, user_id=user_id
+    )

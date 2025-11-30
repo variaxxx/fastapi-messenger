@@ -88,7 +88,7 @@ async def api_get_messages(
 
 
 @router.post(
-    "/{chat_id}/message",
+    "/{chat_id}/messages",
     response_model=MessageInfoDto,
     status_code=status.HTTP_201_CREATED,
 )
@@ -138,6 +138,28 @@ async def api_edit_message(
     )
 
 
+@router.delete("/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def api_delete_message(
+    message_id: UUID4,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    return await chats_service.delete_message(
+        db, message_id=str(message_id), user_id=str(user.id)
+    )
+
+
+@router.post("/{chat_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
+async def api_leave_group(
+    chat_id: UUID4,
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    return await chats_service.delete_member(
+        db, chat_id=chat_id, target_user_id=user.id
+    )
+
+
 @router.get(
     "/{chat_id}/members", response_model=FindManyResponse[ChatMemberDto]
 )
@@ -160,7 +182,9 @@ async def api_get_members(
     )
 
 
-@router.delete("/{chat_id}/members/{user_id}", status_code=204)
+@router.delete(
+    "/{chat_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 async def api_delete_member(
     chat_id: UUID4,
     user_id: UUID4,

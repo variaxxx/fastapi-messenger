@@ -48,7 +48,7 @@ async def get_chats_for_user(
             LEFT JOIN LATERAL (
                 SELECT *
                 FROM messages
-                WHERE messages.chat_id = c.id
+                WHERE messages.chat_id = c.id AND messages.is_deleted = FALSE
                 ORDER BY messages.created_at DESC
                 LIMIT 1
             ) AS m ON TRUE
@@ -129,7 +129,7 @@ async def get_messages_for_chat(
             id, created_at, updated_at, chat_id,
             sender_id, text, is_edited, replies_to
         FROM messages
-        WHERE chat_id = :chat_id
+        WHERE chat_id = :chat_id AND is_deleted = FALSE
         ORDER BY created_at DESC
         OFFSET :offset
         LIMIT :limit;
@@ -209,7 +209,7 @@ async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
         """
         SELECT COUNT(*)
         FROM messages m
-        WHERE m.chat_id = :chat_id;
+        WHERE m.chat_id = :chat_id AND is_deleted = FALSE;
         """
     )
     result = await db.execute(q, {"chat_id": chat_id})
@@ -231,7 +231,7 @@ async def rename_chat(
         last_message AS (
             SELECT *
             FROM messages
-            WHERE chat_id = :chat_id
+            WHERE chat_id = :chat_id AND is_deleted = FALSE
             ORDER BY created_at DESC
             LIMIT 1
         ),
@@ -273,7 +273,7 @@ async def update_message(
             text = :text,
             updated_at = NOW(),
             is_edited = TRUE
-        WHERE id = :id AND sender_id = :user_id
+        WHERE id = :id AND sender_id = :user_id AND is_deleted = FALSE
         RETURNING
             id, created_at, updated_at,
             chat_id, sender_id, text, is_edited, replies_to;
@@ -284,7 +284,7 @@ async def update_message(
     row = result.mappings().first()
 
     if not row:
-        raise HTTPException(404, "сообщение не найдено")
+        raise HTTPException(404, "Message not found")
 
     return MessageInfoDto.model_validate(row)
 
@@ -336,6 +336,34 @@ async def remove_chat_member(
 ) -> None:
     q = text("""
         DELETE FROM chat_members
-        WHERE chat_id = :chat_id AND user_id = :user_id;
+        WHERE chat_id = :chat_id AND user_id = :user_id
+        RETURNING 1;
     """)
-    await db.execute(q, {"chat_id": chat_id, "user_id": user_id})
+    result = await db.execute(q, {"chat_id": chat_id, "user_id": user_id})
+    if not result.scalar():
+        raise HTTPException(404, "Member not found")
+
+
+async def delete_message(
+    db: AsyncSession, message_id: str, user_id: str
+) -> None:
+    q = text("""
+        UPDATE messages m
+        SET
+            m.is_deleted = TRUE,
+            m.updated_at = NOW()
+        WHERE m.id = :message_id
+            AND (
+                m.sender_id = :user_id
+                OR EXISTS (
+                    SELECT 1
+                    FROM chat_members cm
+                    WHERE cm.user_id = :user_id
+                        AND cm.chat_id = m.chat_id
+                        AND cm.role = 'admin'
+                )
+        RETURNING 1;
+    """)
+    result = await db.execute(q, {"message_id": message_id, "user_id": user_id})
+    if not result.scalar():
+        raise HTTPException(404, "Member not found")
