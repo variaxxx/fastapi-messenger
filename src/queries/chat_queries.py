@@ -72,7 +72,7 @@ async def get_chat_by_id(
     q = text(
         """
         SELECT *
-        FROM chats
+        FROM chats c
             JOIN chat_members cm ON
                 cm.chat_id = c.id
                 AND cm.user_id = :user_id
@@ -116,7 +116,7 @@ async def add_chat_member(
     except IntegrityError as e:
         await db.rollback()
 
-        if getattr(e.orig, "pgcode", None) == "23505":
+        if getattr(e.orig, "pgcode", None) == "23503":
             raise HTTPException(404, "Chat or user not found")
         raise
 

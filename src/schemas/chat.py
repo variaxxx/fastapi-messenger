@@ -25,7 +25,7 @@ class ChatInfoDto(BaseModel):
 class CreateChatDto(BaseModel):
     type: str = Field(..., pattern="^(direct|group)$")
     title: Optional[str] = None
-    members: List[UUID4] = []
+    members: List[UUID4] = Field(default_factory=list)
 
 
 class SendMessageDto(BaseModel):
@@ -60,4 +60,4 @@ class ChatMemberDto(BaseModel):
 
 
 class InviteChatMembersDto(BaseModel):
-    members: List[UUID4] = []
+    members: List[UUID4] = Field(default_factory=list)

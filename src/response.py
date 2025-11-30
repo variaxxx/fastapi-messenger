@@ -1,6 +1,7 @@
 from typing import Any, Generic, List, Optional, TypeVar
 
 from fastapi.responses import JSONResponse
+from pydantic import Field
 from pydantic.generics import GenericModel
 
 T = TypeVar("T")
@@ -15,7 +16,7 @@ class ResponseStructure(GenericModel, Generic[T]):
 class FindManyResponse(GenericModel, Generic[T]):
     total: int
     count: int
-    items: List[T] = []
+    items: List[T] = Field(default_factory=list)
 
 
 class ApiResponse(JSONResponse):
