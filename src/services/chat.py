@@ -57,17 +57,9 @@ async def create_chat(
         user_id=creator_id,
         role=("admin" if payload.type == "group" else "member"),
     )
-
-    # TODO: minimize db requests
-    # добавляем остальных участников как member (если есть)
-    await chat_queries.add_chat_members()
-    for uid in payload.members:
-        # не перезаписываем роль создателя
-        if str(uid) == str(creator_id):
-            continue
-        await chat_queries.add_chat_member(
-            db, chat_id=chat.id, user_id=str(uid), role="member"
-        )
+    await chat_queries.add_chat_members(
+        db, chat_id=chat.id, user_ids=payload.members
+    )
     return chat
 
 
@@ -139,9 +131,19 @@ async def list_members(
 async def delete_member(
     db: AsyncSession, chat_id: str, target_user_id: str
 ) -> None:
-    return await chat_queries.remove_chat_member(
+    [deleted, new_admin_id] = await chat_queries.remove_chat_member(
         db, chat_id=chat_id, user_id=target_user_id
     )
+    if not deleted:
+        raise HTTPException(400, "User is not a member of this chat")
+
+
+async def leave_chat(db: AsyncSession, chat_id: str, user_id: str) -> None:
+    [deleted, new_admin_id] = await chat_queries.remove_chat_member(
+        db, chat_id=chat_id, user_id=user_id
+    )
+    if not deleted:
+        raise HTTPException(400, "You are not a member of this chat")
 
 
 async def delete_message(

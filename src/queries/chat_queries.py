@@ -1,6 +1,7 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import HTTPException
+from pydantic import UUID4
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -333,15 +334,39 @@ async def get_chat_members(
 
 async def remove_chat_member(
     db: AsyncSession, chat_id: str, user_id: str
-) -> None:
+) -> Tuple[int, UUID4]:
     q = text("""
-        DELETE FROM chat_members
-        WHERE chat_id = :chat_id AND user_id = :user_id
-        RETURNING 1;
+        WITH deleted_member AS (
+            DELETE FROM chat_members
+            WHERE chat_id = :chat_id AND user_id = :user_id
+            RETURNING user_id, role
+        ),
+        was_admin AS (
+            SELECT 1
+            FROM deleted_member
+            WHERE role = 'admin'
+        ),
+        new_admin AS (
+            UPDATE chat_members
+            SET role = 'admin'
+            WHERE
+                user_id = (
+                    SELECT user_id
+                    FROM chat_members
+                    WHERE chat_id = :chat_id AND role <> 'admin'
+                    ORDER BY random()
+                    LIMIT 1
+                )
+                AND chat_id = :chat_id
+                AND EXISTS (SELECT 1 FROM was_admin)
+            RETURNING user_id
+        )
+        SELECT
+            (SELECT COUNT(*) FROM deleted_member) AS deleted,
+            (SELECT user_id FROM new_admin) AS new_admin_id;
     """)
     result = await db.execute(q, {"chat_id": chat_id, "user_id": user_id})
-    if not result.scalar():
-        raise HTTPException(404, "Member not found")
+    return result.mappings().first()
 
 
 async def delete_message(

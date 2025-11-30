@@ -156,9 +156,7 @@ async def api_leave_group(
     user: Annotated[TokenUserInfo, Depends(auth_guard)],
     db: Annotated[AsyncSession, Depends(get_async_session)],
 ):
-    return await chats_service.delete_member(
-        db, chat_id=chat_id, target_user_id=user.id
-    )
+    return await chats_service.leave_chat(db, chat_id=chat_id, user_id=user.id)
 
 
 @router.get(
