@@ -40,6 +40,7 @@ async def init():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 type VARCHAR(16) NOT NULL CHECK (type IN ('direct', 'group')),
+                avatar_url VARCHAR(255),
                 title VARCHAR(255)
             );
         """)

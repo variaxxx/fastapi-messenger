@@ -1,9 +1,13 @@
+import os
 from typing import List
+from uuid import uuid4
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import src.queries.chat_queries as chat_queries
+from src.core.config import settings
+from src.db.minio import remove_from_minio, upload_to_minio
 from src.schemas.chat import (
     ChatInfo,
     ChatInfoDto,
@@ -12,6 +16,7 @@ from src.schemas.chat import (
     MessageInfoDto,
     SendMessageDto,
 )
+from src.services.image import resize_image
 
 
 def validate_chat_title(title: str) -> bool:
@@ -172,3 +177,38 @@ async def is_user_chat_admin(
     if not me or me[0].role != "admin":
         return False
     return True
+
+
+async def change_group_picture(
+    db: AsyncSession, chat_id: str, file: UploadFile, user_id: str
+):
+    allowed_types = {"image/png", "image/jpeg", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(400, "Unsupported file type")
+
+    old_chat_info: ChatInfo = await chat_queries.get_chat_by_id(
+        db, chat_id=chat_id, user_id=user_id
+    )
+
+    if not old_chat_info or old_chat_info.type != "group":
+        raise HTTPException(404, "Group not found")
+
+    if old_chat_info.avatar_url:
+        remove_from_minio(
+            old_chat_info.avatar_url.split("/")[-1],
+            settings.ASSETS_BUCKET_NAME,
+        )
+
+    filename = f"{uuid4().hex}{os.path.splitext(file.filename)[1]}"
+    resized_image = resize_image(file)
+    if not upload_to_minio(
+        file=resized_image[0],
+        bucket_name=settings.ASSETS_BUCKET_NAME,
+        filename=filename,
+    ):
+        raise HTTPException(500, "Internal server error")
+
+    avatar_url = f"/{settings.ASSETS_BUCKET_NAME}/{filename}"
+    return await chat_queries.change_group_picture(
+        db=db, chat_id=chat_id, avatar_url=avatar_url
+    )

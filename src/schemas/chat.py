@@ -9,17 +9,26 @@ class ChatInfo(BaseModel):
     created_at: datetime
     type: str = Field(..., pattern="^(direct|group)$")
     title: str
+    avatar_url: str | None
 
 
 class ChatInfoDto(BaseModel):
     id: UUID4
     type: str = Field(..., pattern="^(direct|group)$")
     title: str | None
+    avatar_url: str | None
     role: str = Field(..., pattern="^(member|admin)$")
     last_message_id: UUID4 | None
     last_message_text: str | None
     last_message_date: datetime | None
     last_message_sender: UUID4 | None
+
+
+class ShortChatInfoDto(BaseModel):
+    id: UUID4
+    type: str = Field(..., pattern="^(direct|group)$")
+    title: str | None
+    avatar_url: str | None
 
 
 class CreateChatDto(BaseModel):

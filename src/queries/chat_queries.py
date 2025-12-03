@@ -11,6 +11,7 @@ from src.schemas.chat import (
     ChatInfoDto,
     ChatMemberDto,
     MessageInfoDto,
+    ShortChatInfoDto,
 )
 
 
@@ -23,6 +24,7 @@ async def get_chats_for_user(
             c.id,
             c.created_at,
             c.type,
+            c.avatar_url,
 
             CASE
                 WHEN c.type = 'direct' THEN other_user.name
@@ -81,6 +83,10 @@ async def get_chat_by_id(
     )
     result = await db.execute(q, {"chat_id": chat_id, "user_id": user_id})
     row = result.mappings().first()
+
+    if not row:
+        return None
+
     return ChatInfo.model_validate(row)
 
 
@@ -91,7 +97,7 @@ async def create_chat(
         """
         INSERT INTO chats (type, title)
         VALUES (:type, :title)
-        RETURNING id, created_at, type, title;
+        RETURNING id, created_at, type, title, avatar_url;
         """
     )
     result = await db.execute(q, {"type": type_, "title": title})
@@ -421,3 +427,21 @@ async def add_chat_members(
     result = await db.execute(q, {"user_ids": user_ids, "chat_id": chat_id})
     rows = result.mappings().all()
     return [ChatMemberDto.model_validate(row) for row in rows]
+
+
+async def change_group_picture(
+    db: AsyncSession, chat_id: str, avatar_url: str
+) -> Optional[ShortChatInfoDto]:
+    q = text("""
+        UPDATE chats
+        SET avatar_url = :avatar_url
+        WHERE type = 'group' AND id = :chat_id
+        RETURNING id, type, title, avatar_url;
+    """)
+    result = await db.execute(q, {"avatar_url": avatar_url, "chat_id": chat_id})
+    row = result.mappings().first()
+
+    if not row:
+        return None
+
+    return ShortChatInfoDto.model_validate(row)

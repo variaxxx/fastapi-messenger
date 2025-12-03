@@ -1,6 +1,14 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from pydantic import UUID4
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +26,7 @@ from src.schemas.chat import (
     MessageInfoDto,
     RenameChatDto,
     SendMessageDto,
+    ShortChatInfoDto,
 )
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
@@ -54,6 +63,7 @@ async def api_create_chat(
         id=chat.id,
         type=chat.type,
         title=chat.title,
+        avatar_url=chat.avatar_url,
         role="admin",
         last_message_id=None,
         last_message_date=None,
@@ -225,4 +235,21 @@ async def api_delete_member(
 
     await chats_service.delete_member(
         db, chat_id=str(chat_id), target_user_id=str(user_id)
+    )
+
+
+@router.patch("/{chat_id}/avatar", response_model=ShortChatInfoDto)
+async def api_change_group_picture(
+    chat_id: UUID4,
+    file: Annotated[UploadFile, File(...)],
+    user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    db: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    if not chats_service.is_user_chat_admin(
+        db, chat_id=chat_id, user_id=user.id
+    ):
+        raise HTTPException(403, "Forbidden")
+
+    return await chats_service.change_group_picture(
+        db=db, file=file, chat_id=chat_id, user_id=user.id
     )
