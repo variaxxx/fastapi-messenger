@@ -1,9 +1,10 @@
-from typing import Annotated
+from typing import Annotated, List, Optional
 
 from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     UploadFile,
@@ -23,9 +24,9 @@ from src.schemas.chat import (
     CreateChatDto,
     EditMessageDto,
     InviteChatMembersDto,
+    MessageInfo,
     MessageInfoDto,
     RenameChatDto,
-    SendMessageDto,
     ShortChatInfoDto,
 )
 
@@ -105,9 +106,11 @@ async def api_get_messages(
 )
 async def api_send_message(
     chat_id: UUID4,
-    payload: SendMessageDto,
     db: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[TokenUserInfo, Depends(auth_guard)],
+    text: Optional[str] = Form(None),
+    replies_to: Optional[UUID4] = Form(None),
+    attachments: Optional[List[UploadFile]] = File([]),
 ):
     if not await chats_service.is_user_in_chat(
         db, chat_id=chat_id, user_id=user.id
@@ -116,8 +119,16 @@ async def api_send_message(
             status_code=403, detail="You are not a member of this chat"
         )
 
+    if not attachments and not text:
+        raise HTTPException(400, "Message should contain text or attachment")
+
     message: MessageInfoDto = await chats_service.send_message(
-        db, chat_id=chat_id, payload=payload, sender_id=user.id
+        db,
+        chat_id=chat_id,
+        sender_id=user.id,
+        text=text,
+        replies_to=replies_to,
+        attachments=attachments,
     )
     return message
 
@@ -137,7 +148,7 @@ async def api_rename_chat(
     )
 
 
-@router.patch("/messages/{message_id}", response_model=MessageInfoDto)
+@router.patch("/messages/{message_id}", response_model=MessageInfo)
 async def api_edit_message(
     message_id: UUID4,
     dto: EditMessageDto,

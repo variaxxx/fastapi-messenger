@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
@@ -13,8 +13,8 @@ from src.schemas.chat import (
     ChatInfoDto,
     ChatMemberDto,
     CreateChatDto,
+    MessageInfo,
     MessageInfoDto,
-    SendMessageDto,
 )
 from src.services.image import resize_image
 
@@ -79,16 +79,58 @@ async def get_messages(
 async def send_message(
     db: AsyncSession,
     chat_id: str,
-    payload: SendMessageDto,
+    text: Optional[str],
+    replies_to: Optional[str],
     sender_id: str,
+    attachments: List[UploadFile],
 ) -> MessageInfoDto:
-    return await chat_queries.send_message(
+    message = await chat_queries.send_message(
         db,
         chat_id=chat_id,
-        text_=payload.text,
+        text_=text,
         sender_id=sender_id,
-        replies_to=payload.replies_to,
+        replies_to=replies_to,
     )
+
+    ALLOWED_ATTACHMENT_TYPES = {
+        "photo": ["image/jpeg", "image/png", "image/webp"],
+        "video": ["video/mp4"],
+        "document": [
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ],
+    }
+
+    loaded_attachments = []
+
+    for file in attachments:
+        type = [
+            type
+            for type, formats in ALLOWED_ATTACHMENT_TYPES.items()
+            if file.content_type in formats
+        ]
+
+        if not type:
+            raise HTTPException(400, "Invalid file type")
+        type = type[0]
+
+        filename = f"{uuid4().hex}{os.path.splitext(file.filename)[1]}"
+        upload_to_minio(file.file, filename, settings.ASSETS_BUCKET_NAME)
+
+        attachment = await chat_queries.save_attachment(
+            db=db,
+            message_id=message.id,
+            file_url=f"/{settings.ASSETS_BUCKET_NAME}/{filename}",
+            filename=file.filename,
+            size_bytes=file.size,
+            type=type,
+        )
+        loaded_attachments += [attachment]
+
+    data = message.model_dump()
+    data["attachments"] = loaded_attachments
+    return MessageInfoDto.model_validate(data)
 
 
 async def is_user_in_chat(db: AsyncSession, chat_id: str, user_id) -> bool:
@@ -119,7 +161,7 @@ async def rename_chat(
 
 async def edit_message(
     db: AsyncSession, message_id: str, user_id: str, text: str
-) -> MessageInfoDto:
+) -> MessageInfo:
     return await chat_queries.update_message(
         db, message_id=message_id, user_id=user_id, text_=text
     )

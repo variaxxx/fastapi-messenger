@@ -4,31 +4,39 @@ from typing import List, Optional
 from pydantic import UUID4, BaseModel, Field
 
 
+class AttachmentInfoDto(BaseModel):
+    message_id: UUID4
+    url: str
+    type: str
+    size_bytes: int
+    filename: str
+
+
 class ChatInfo(BaseModel):
     id: UUID4
     created_at: datetime
     type: str = Field(..., pattern="^(direct|group)$")
     title: str
-    avatar_url: str | None
+    avatar_url: Optional[str]
 
 
 class ChatInfoDto(BaseModel):
     id: UUID4
     type: str = Field(..., pattern="^(direct|group)$")
-    title: str | None
-    avatar_url: str | None
+    title: Optional[str]
+    avatar_url: Optional[str]
     role: str = Field(..., pattern="^(member|admin)$")
-    last_message_id: UUID4 | None
-    last_message_text: str | None
-    last_message_date: datetime | None
-    last_message_sender: UUID4 | None
+    last_message_id: Optional[UUID4]
+    last_message_text: Optional[str]
+    last_message_date: Optional[datetime]
+    last_message_sender: Optional[UUID4]
 
 
 class ShortChatInfoDto(BaseModel):
     id: UUID4
     type: str = Field(..., pattern="^(direct|group)$")
-    title: str | None
-    avatar_url: str | None
+    title: Optional[str]
+    avatar_url: Optional[str]
 
 
 class CreateChatDto(BaseModel):
@@ -37,9 +45,15 @@ class CreateChatDto(BaseModel):
     members: List[UUID4] = Field(default_factory=list)
 
 
-class SendMessageDto(BaseModel):
-    text: str = Field(..., min_length=1, max_length=1000)
-    replies_to: Optional[UUID4] = None
+class MessageInfo(BaseModel):
+    id: UUID4
+    created_at: datetime
+    updated_at: datetime
+    chat_id: UUID4
+    sender_id: UUID4
+    text: Optional[str]
+    is_edited: bool
+    replies_to: Optional[UUID4]
 
 
 class MessageInfoDto(BaseModel):
@@ -48,9 +62,10 @@ class MessageInfoDto(BaseModel):
     updated_at: datetime
     chat_id: UUID4
     sender_id: UUID4
-    text: str
+    text: Optional[str]
     is_edited: bool
     replies_to: Optional[UUID4]
+    attachments: List[AttachmentInfoDto]
 
 
 class RenameChatDto(BaseModel):
@@ -63,8 +78,8 @@ class EditMessageDto(BaseModel):
 
 class ChatMemberDto(BaseModel):
     id: str
-    displayed_name: str | None
-    avatar_url: str | None
+    displayed_name: Optional[str]
+    avatar_url: Optional[str]
     role: str = Field(..., pattern="^(member|admin)$")
 
 

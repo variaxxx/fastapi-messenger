@@ -7,9 +7,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.schemas.chat import (
+    AttachmentInfoDto,
     ChatInfo,
     ChatInfoDto,
     ChatMemberDto,
+    MessageInfo,
     MessageInfoDto,
     ShortChatInfoDto,
 )
@@ -133,9 +135,14 @@ async def get_messages_for_chat(
     q = text(
         """
         SELECT
-            id, created_at, updated_at, chat_id,
-            sender_id, text, is_edited, replies_to
-        FROM messages
+            m.id, m.created_at, m.updated_at, m.chat_id,
+            m.sender_id, m.text, m.is_edited, m.replies_to,
+            a.url AS a_url,
+            a.type AS a_type,
+            a.size_bytes AS a_size_bytes,
+            a.filename AS a_filename
+        FROM messages m
+            LEFT JOIN attachments a ON a.message_id = m.id
         WHERE chat_id = :chat_id AND is_deleted = FALSE
         ORDER BY created_at DESC
         OFFSET :offset
@@ -146,7 +153,38 @@ async def get_messages_for_chat(
         q, {"chat_id": chat_id, "limit": limit, "offset": offset}
     )
     rows = result.mappings().all()
-    return [MessageInfoDto.model_validate(row) for row in rows]
+
+    messages_map = {}
+    for row in rows:
+        msg_id = row["id"]
+
+        if msg_id not in messages_map:
+            messages_map[msg_id] = {
+                "id": row["id"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "chat_id": row["chat_id"],
+                "sender_id": row["sender_id"],
+                "text": row["text"],
+                "is_edited": row["is_edited"],
+                "replies_to": row["replies_to"],
+                "attachments": [],
+            }
+
+        if row["a_url"] is not None:
+            messages_map[msg_id]["attachments"].append(
+                AttachmentInfoDto(
+                    message_id=row["id"],
+                    url=row["a_url"],
+                    type=row["a_type"],
+                    size_bytes=row["a_size_bytes"],
+                    filename=row["a_filename"],
+                )
+            )
+
+    return [
+        MessageInfoDto.model_validate(data) for data in messages_map.values()
+    ]
 
 
 async def send_message(
@@ -155,7 +193,7 @@ async def send_message(
     text_: str,
     sender_id: str,
     replies_to: Optional[str] = None,
-) -> MessageInfoDto:
+) -> MessageInfo:
     try:
         q = text(
             """
@@ -176,7 +214,7 @@ async def send_message(
             },
         )
         row = result.mappings().first()
-        return MessageInfoDto.model_validate(row)
+        return MessageInfo.model_validate(row)
     except IntegrityError as e:
         await db.rollback()
 
@@ -273,7 +311,7 @@ async def rename_chat(
 
 async def update_message(
     db: AsyncSession, message_id: str, user_id: str, text_: str
-) -> MessageInfoDto:
+) -> MessageInfo:
     q = text("""
         UPDATE messages
         SET
@@ -293,7 +331,7 @@ async def update_message(
     if not row:
         raise HTTPException(404, "Message not found")
 
-    return MessageInfoDto.model_validate(row)
+    return MessageInfo.model_validate(row)
 
 
 async def get_chat_members(
@@ -445,3 +483,30 @@ async def change_group_picture(
         return None
 
     return ShortChatInfoDto.model_validate(row)
+
+
+async def save_attachment(
+    db: AsyncSession,
+    message_id: str,
+    file_url: str,
+    type: str,
+    size_bytes: int,
+    filename: str,
+) -> AttachmentInfoDto:
+    q = text("""
+        INSERT INTO attachments (message_id, url, type, size_bytes, filename)
+        VALUES (:message_id, :file_url, :type, :size_bytes, :filename)
+        RETURNING message_id, url, type, size_bytes, filename;
+    """)
+    result = await db.execute(
+        q,
+        {
+            "message_id": message_id,
+            "file_url": file_url,
+            "type": type,
+            "size_bytes": size_bytes,
+            "filename": filename,
+        },
+    )
+    row = result.mappings().first()
+    return AttachmentInfoDto.model_validate(row)

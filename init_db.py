@@ -54,7 +54,7 @@ async def init():
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
                 sender_id UUID REFERENCES users(id),
-                text VARCHAR(1000) NOT NULL,
+                text VARCHAR(1000),
                 is_edited BOOLEAN NOT NULL DEFAULT FALSE,
                 is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
                 replies_to UUID REFERENCES messages(id) ON DELETE SET NULL
