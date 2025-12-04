@@ -218,7 +218,7 @@ async def send_message(
     except IntegrityError as e:
         await db.rollback()
 
-        if getattr(e.orig, "pgcode", None) == "23505":
+        if getattr(e.orig, "pgcode", None) == "23503":
             raise HTTPException(404, "Chat or user not found")
         raise
 
@@ -263,40 +263,14 @@ async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
 
 async def rename_chat(
     db: AsyncSession, editor_id: str, chat_id: str, title: str
-) -> ChatInfoDto:
+) -> ShortChatInfoDto:
     q = text("""
-        WITH updated_chat AS (
-            UPDATE chats
-            SET
-                title = :title,
-                updated_at = NOW()
-            WHERE id = :chat_id AND type = 'group'
-            RETURNING id, type, title
-        ),
-        last_message AS (
-            SELECT *
-            FROM messages
-            WHERE chat_id = :chat_id AND is_deleted = FALSE
-            ORDER BY created_at DESC
-            LIMIT 1
-        ),
-        chat_member AS (
-            SELECT
-                role
-            FROM chat_members
-            WHERE chat_id = :chat_id AND user_id = :editor_id
-            LIMIT 1
-        )
-        SELECT
-            uc.*,
-            cm.role,
-            lm.id AS last_message_id,
-            lm.text AS last_message_text,
-            lm.created_at AS last_message_date,
-            lm.sender_id AS last_message_sender
-        FROM updated_chat uc
-            JOIN chat_member AS cm ON TRUE
-            LEFT JOIN last_message AS lm ON TRUE;
+        UPDATE chats
+        SET
+            title = :title,
+            updated_at = NOW()
+        WHERE id = :chat_id AND type = 'group'
+        RETURNING id, type, title, avatar_url
     """)
     result = await db.execute(
         q, {"chat_id": chat_id, "title": title, "editor_id": editor_id}
@@ -306,7 +280,7 @@ async def rename_chat(
     if not row:
         raise HTTPException(404, "Chat not found")
 
-    return ChatInfoDto.model_validate(row)
+    return ShortChatInfoDto.model_validate(row)
 
 
 async def update_message(
@@ -510,3 +484,14 @@ async def save_attachment(
     )
     row = result.mappings().first()
     return AttachmentInfoDto.model_validate(row)
+
+
+async def get_all_chat_ids(db: AsyncSession, user_id: str) -> List[int]:
+    q = text("""
+        SELECT chat_id
+        FROM chat_members
+        WHERE user_id = :user_id;
+    """)
+    result = await db.execute(q, {"user_id": user_id})
+    rows = result.mappings().all()
+    return [row["chat_id"] for row in rows]

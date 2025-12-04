@@ -28,7 +28,7 @@ async def init():
             CREATE TABLE IF NOT EXISTS blacklisted_refresh_tokens (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 token TEXT UNIQUE,
-                user_id UUID REFERENCES users(id)
+                user_id UUID NOT NULL REFERENCES users(id)
             );
         """)
         )
@@ -52,8 +52,8 @@ async def init():
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
-                sender_id UUID REFERENCES users(id),
+                chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                sender_id UUID NOT NULL REFERENCES users(id),
                 text VARCHAR(1000),
                 is_edited BOOLEAN NOT NULL DEFAULT FALSE,
                 is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
@@ -65,9 +65,10 @@ async def init():
         await conn.execute(
             text("""
             CREATE TABLE IF NOT EXISTS chat_members (
-                chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
-                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 role VARCHAR(16) NOT NULL CHECK (role IN ('member', 'admin')),
+                last_read_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
                 PRIMARY KEY(chat_id, user_id)
             );
         """)
@@ -77,7 +78,7 @@ async def init():
             text("""
             CREATE TABLE IF NOT EXISTS attachments (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+                message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
                 url VARCHAR(500) NOT NULL,
                 type TEXT NOT NULL CHECK (
                     type IN ('photo', 'video', 'document')

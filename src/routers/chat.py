@@ -133,7 +133,7 @@ async def api_send_message(
     return message
 
 
-@router.patch("/{chat_id}", response_model=ChatInfoDto)
+@router.patch("/{chat_id}", response_model=ShortChatInfoDto)
 async def api_rename_chat(
     chat_id: UUID4,
     dto: RenameChatDto,

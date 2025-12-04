@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import src.queries.chat_queries as chat_queries
 from src.core.config import settings
 from src.db.minio import remove_from_minio, upload_to_minio
+from src.routers.websocket_handlers import websocket_manager
 from src.schemas.chat import (
     ChatInfo,
     ChatInfoDto,
@@ -15,6 +16,7 @@ from src.schemas.chat import (
     CreateChatDto,
     MessageInfo,
     MessageInfoDto,
+    ShortChatInfoDto,
 )
 from src.services.image import resize_image
 
@@ -130,7 +132,15 @@ async def send_message(
 
     data = message.model_dump()
     data["attachments"] = loaded_attachments
-    return MessageInfoDto.model_validate(data)
+    message_info = MessageInfoDto.model_validate(data)
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=chat_id,
+        event="message:new",
+        message=data,
+    )
+
+    return message_info
 
 
 async def is_user_in_chat(db: AsyncSession, chat_id: str, user_id) -> bool:
@@ -149,14 +159,20 @@ async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
 
 async def rename_chat(
     db: AsyncSession, editor_id: str, chat_id: str, title: str
-) -> ChatInfoDto:
+) -> ShortChatInfoDto:
     title = title.strip()
     if not validate_chat_title(title):
         raise HTTPException(403, "Invalid chat title")
 
-    return await chat_queries.rename_chat(
+    chat_info = await chat_queries.rename_chat(
         db, chat_id=chat_id, editor_id=editor_id, title=title
     )
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=chat_id, event="chat:edited", message=chat_info.model_dump()
+    )
+
+    return chat_info
 
 
 async def edit_message(
@@ -251,6 +267,16 @@ async def change_group_picture(
         raise HTTPException(500, "Internal server error")
 
     avatar_url = f"/{settings.ASSETS_BUCKET_NAME}/{filename}"
-    return await chat_queries.change_group_picture(
+    chat_info = await chat_queries.change_group_picture(
         db=db, chat_id=chat_id, avatar_url=avatar_url
     )
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=chat_id, event="chat:edited", message=chat_info.model_dump()
+    )
+
+    return chat_info
+
+
+async def get_all_chat_ids(db: AsyncSession, user_id: str) -> List[int]:
+    return await chat_queries.get_all_chat_ids(db, user_id)
