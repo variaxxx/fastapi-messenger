@@ -37,7 +37,7 @@ async def ws(
     chat_ids: List[int] = await get_all_chat_ids(db=db, user_id=user.id)
     for chat_id in chat_ids:
         await websocket_manager.add_user_to_chat(
-            chat_id=chat_id, websocket=websocket
+            chat_id=chat_id, user_id=user.id
         )
 
     try:

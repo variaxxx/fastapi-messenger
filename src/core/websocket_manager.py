@@ -23,8 +23,10 @@ class WebSocketManager:
     async def add_user_connection(self, user_id: str, websocket: WebSocket):
         self.user_uuid_to_ws.setdefault(str(user_id), set()).add(websocket)
 
-    async def add_user_to_chat(self, chat_id: str, websocket: WebSocket):
-        self.chat_uuid_to_ws.setdefault(str(chat_id), set()).add(websocket)
+    async def add_user_to_chat(self, chat_id: str, user_id: str):
+        self.chat_uuid_to_ws.setdefault(str(chat_id), set()).update(
+            self.user_uuid_to_ws.get(str(user_id), set())
+        )
 
     async def remove_user_connection(self, user_id: str, websocket: WebSocket):
         self.user_uuid_to_ws.get(str(user_id), set()).remove(websocket)
