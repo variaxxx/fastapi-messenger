@@ -318,3 +318,11 @@ async def change_group_picture(
 
 async def get_all_chat_ids(db: AsyncSession, user_id: str) -> List[int]:
     return await chat_queries.get_all_chat_ids(db, user_id)
+
+
+async def mark_message_read(
+    db: AsyncSession, user_id: str, chat_id: str, message_id: str
+) -> None:
+    await chat_queries.mark_message_read(
+        db=db, user_id=user_id, chat_id=chat_id, message_id=message_id
+    )

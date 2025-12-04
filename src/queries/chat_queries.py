@@ -579,3 +579,27 @@ async def get_all_chat_ids(db: AsyncSession, user_id: str) -> List[int]:
     result = await db.execute(q, {"user_id": user_id})
     rows = result.mappings().all()
     return [row["chat_id"] for row in rows]
+
+
+async def mark_message_read(
+    db: AsyncSession, user_id: str, chat_id: str, message_id: str
+) -> None:
+    q = text("""
+        UPDATE chat_members cm
+        SET last_read_message_id = :message_id
+        FROM messages m
+        WHERE cm.chat_id = :chat_id
+            AND cm.user_id = :user_id
+            AND m.id = :message_id
+            AND (
+                cm.last_read_message_id IS NULL
+                OR m.created_at > (
+                    SELECT created_at
+                    FROM messages
+                    WHERE id = cm.last_read_message_id
+                )
+            );
+    """)
+    await db.execute(
+        q, {"message_id": message_id, "chat_id": chat_id, "user_id": user_id}
+    )

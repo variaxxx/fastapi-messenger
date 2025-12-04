@@ -9,3 +9,8 @@ class SendMessagePayload(BaseModel):
 
 class UserTypingPayload(BaseModel):
     chat_id: str
+
+
+class MessageReadPayload(BaseModel):
+    chat_id: str
+    message_id: str

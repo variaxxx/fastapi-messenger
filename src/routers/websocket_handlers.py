@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import src.services.chat as chat_service
 from src.core.websocket_manager import WebSocketManager
 from src.schemas.auth import TokenUserInfo
-from src.schemas.websocket import SendMessagePayload, UserTypingPayload
+from src.schemas.websocket import (
+    MessageReadPayload,
+    SendMessagePayload,
+    UserTypingPayload,
+)
 
 websocket_manager = WebSocketManager()
 
@@ -26,8 +30,17 @@ async def message_send(
 
 
 @websocket_manager.handler("message:read")
-async def message_read():
-    pass
+async def message_read(
+    db: AsyncSession, payload: dict, user: TokenUserInfo, websocket: WebSocket
+):
+    payload = MessageReadPayload(**payload)
+
+    await chat_service.mark_message_read(
+        db=db,
+        user_id=user.id,
+        chat_id=payload.chat_id,
+        message_id=payload.message_id,
+    )
 
 
 @websocket_manager.handler("user:typing")
@@ -41,13 +54,3 @@ async def user_typing(
         event="user:typing",
         message={"chat_id": payload.chat_id, "user_id": user.id},
     )
-
-
-@websocket_manager.handler("chat:leave")
-async def chat_leave():
-    pass
-
-
-@websocket_manager.handler("chat:enter")
-async def chat_enter():
-    pass
