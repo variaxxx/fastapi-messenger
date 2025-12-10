@@ -74,8 +74,6 @@ async def create(db: AsyncSession, user: CreateUser) -> UserInfo | None:
             return None
         return UserInfo.model_validate(row)
     except IntegrityError as e:
-        await db.rollback()
-
         if getattr(e.orig, "pgcode", None) == "23505":
             raise HTTPException(
                 409, "User with this credentials already exists"
@@ -105,8 +103,6 @@ async def change_username(
 
         return UserInfo.model_validate(row)
     except IntegrityError as e:
-        await db.rollback()
-
         if getattr(e.orig, "pgcode", None) == "23505":
             raise HTTPException(409, "Username is already taken")
         raise
