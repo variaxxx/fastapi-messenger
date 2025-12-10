@@ -297,9 +297,7 @@ async def send_message(
         row = result.mappings().first()
         return MessageInfo.model_validate(row)
     except IntegrityError as e:
-        await db.rollback()
-
-        if getattr(e.orig, "pgcode", None) == "23503":
+        if getattr(e.orig, "pgcode", None) == "23505":
             raise HTTPException(404, "Chat or user not found")
         raise
 
