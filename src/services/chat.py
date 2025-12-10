@@ -1,0 +1,328 @@
+import os
+from typing import List, Optional
+from uuid import uuid4
+
+from fastapi import HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
+
+import src.queries.chat_queries as chat_queries
+from src.core.config import settings
+from src.db.minio import remove_from_minio, upload_to_minio
+from src.routers.websocket_handlers import websocket_manager
+from src.schemas.chat import (
+    ChatInfo,
+    ChatInfoDto,
+    ChatMemberDto,
+    CreateChatDto,
+    MessageInfo,
+    MessageInfoDto,
+    ShortChatInfoDto,
+)
+from src.services.image import resize_image
+
+
+def validate_chat_title(title: str) -> bool:
+    title = title.strip()
+    if not 1 <= len(title) <= 100:
+        return False
+    return True
+
+
+async def get_chats_for_user(
+    db: AsyncSession, user_id: str, limit: int = 20, offset: int = 0
+) -> List[ChatInfoDto]:
+    return await chat_queries.get_chats_for_user(
+        db, user_id=user_id, limit=limit, offset=offset
+    )
+
+
+async def create_chat(
+    db: AsyncSession, payload: CreateChatDto, creator_id: str
+) -> dict:
+    if payload.type == "group" and not payload.title:
+        raise HTTPException(400, "Title is required for groups")
+    title = payload.title.strip()
+    if payload.type == "group" and not validate_chat_title(title):
+        raise HTTPException(403, "Invalid chat title")
+
+    if (
+        payload.type == "direct"
+        and len([member for member in payload.members if member != creator_id])
+        != 1
+    ):
+        raise HTTPException(400, "One member must be provided for direct chats")
+
+    [chat, member_ids] = await chat_queries.create_chat(
+        db=db,
+        type_=payload.type,
+        title=payload.title,
+        creator_id=creator_id,
+        members=payload.members,
+    )
+
+    for member_id in member_ids:
+        chat_info = ChatInfoDto(
+            **chat.model_dump(),
+            role="admin"
+            if member_id == creator_id and chat.type == "group"
+            else "member",
+            last_message_date=None,
+            last_message_id=None,
+            last_message_sender=None,
+            last_message_text=None,
+        )
+        await websocket_manager.add_user_to_chat(
+            chat_id=chat.id, user_id=member_id
+        )
+        await websocket_manager.broadcast_to_user(
+            user_id=member_id, event="chat:new", message=chat_info
+        )
+
+    return chat
+
+
+async def get_messages(
+    db: AsyncSession, chat_id: str, limit: int = 100, offset: int = 0
+) -> List[MessageInfoDto]:
+    return await chat_queries.get_messages_for_chat(
+        db, chat_id=chat_id, limit=limit, offset=offset
+    )
+
+
+async def send_message(
+    db: AsyncSession,
+    chat_id: str,
+    text: Optional[str],
+    replies_to: Optional[str],
+    sender_id: str,
+    attachments: List[UploadFile],
+) -> MessageInfoDto:
+    message = await chat_queries.send_message(
+        db,
+        chat_id=chat_id,
+        text_=text,
+        sender_id=sender_id,
+        replies_to=replies_to,
+    )
+
+    ALLOWED_ATTACHMENT_TYPES = {
+        "photo": ["image/jpeg", "image/png", "image/webp"],
+        "video": ["video/mp4"],
+        "document": [
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ],
+    }
+
+    loaded_attachments = []
+
+    for file in attachments:
+        type = [
+            type
+            for type, formats in ALLOWED_ATTACHMENT_TYPES.items()
+            if file.content_type in formats
+        ]
+
+        if not type:
+            raise HTTPException(400, "Invalid file type")
+        type = type[0]
+
+        filename = f"{uuid4().hex}{os.path.splitext(file.filename)[1]}"
+        upload_to_minio(file.file, filename, settings.ASSETS_BUCKET_NAME)
+
+        attachment = await chat_queries.save_attachment(
+            db=db,
+            message_id=message.id,
+            file_url=f"/{settings.ASSETS_BUCKET_NAME}/{filename}",
+            filename=file.filename,
+            size_bytes=file.size,
+            type=type,
+        )
+        loaded_attachments += [attachment]
+
+    data = message.model_dump()
+    data["attachments"] = loaded_attachments
+    message_info = MessageInfoDto.model_validate(data)
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=chat_id,
+        event="message:new",
+        message=data,
+    )
+
+    return message_info
+
+
+async def is_user_in_chat(db: AsyncSession, chat_id: str, user_id) -> bool:
+    return await chat_queries.is_user_in_chat(
+        db=db, chat_id=chat_id, user_id=user_id
+    )
+
+
+async def get_chats_total(db: AsyncSession, user_id: str) -> int:
+    return await chat_queries.get_chats_total(db=db, user_id=user_id)
+
+
+async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
+    return await chat_queries.get_messages_total(db=db, chat_id=chat_id)
+
+
+async def rename_chat(
+    db: AsyncSession, editor_id: str, chat_id: str, title: str
+) -> ShortChatInfoDto:
+    title = title.strip()
+    if not validate_chat_title(title):
+        raise HTTPException(403, "Invalid chat title")
+
+    chat_info = await chat_queries.rename_chat(
+        db, chat_id=chat_id, editor_id=editor_id, title=title
+    )
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=chat_id, event="chat:edited", message=chat_info.model_dump()
+    )
+
+    return chat_info
+
+
+async def edit_message(
+    db: AsyncSession, message_id: str, user_id: str, text: str
+) -> MessageInfo:
+    message_info = await chat_queries.update_message(
+        db, message_id=message_id, user_id=user_id, text_=text
+    )
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=message_info.chat_id,
+        event="message:edited",
+        message=message_info,
+    )
+
+    return message_info
+
+
+async def list_members(
+    db: AsyncSession, chat_id: str, limit: int = 1000, offset: int = 0
+) -> List[ChatMemberDto]:
+    return await chat_queries.get_chat_members(
+        db, chat_id, limit=limit, offset=offset
+    )
+
+
+async def delete_member(
+    db: AsyncSession, chat_id: str, target_user_id: str
+) -> None:
+    [deleted, new_admin_id] = await chat_queries.remove_chat_member(
+        db, chat_id=chat_id, user_id=target_user_id
+    )
+    if not deleted:
+        raise HTTPException(400, "User is not a member of this chat")
+
+
+async def leave_chat(db: AsyncSession, chat_id: str, user_id: str) -> None:
+    [deleted, new_admin_id] = await chat_queries.remove_chat_member(
+        db, chat_id=chat_id, user_id=user_id
+    )
+    if not deleted:
+        raise HTTPException(400, "You are not a member of this chat")
+
+
+async def delete_message(
+    db: AsyncSession, message_id: str, user_id: str
+) -> None:
+    message = await chat_queries.delete_message(
+        db, message_id=message_id, user_id=user_id
+    )
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=message.chat_id,
+        event="message:deleted",
+        message={"chat_id": message.chat_id, "message_id": message.id},
+    )
+
+
+async def invite_members(db: AsyncSession, members: List[str], chat_id: str):
+    members = await chat_queries.add_chat_members(
+        db, chat_id=chat_id, user_ids=members
+    )
+    chat = await chat_queries.get_chat_by_id(
+        db=db,
+        chat_id=chat_id,
+    )
+
+    if not members:
+        raise HTTPException(400, "No valid user IDs provided")
+
+    for member_id in members:
+        await websocket_manager.add_user_to_chat(
+            chat_id=chat_id, user_id=member_id
+        )
+        await websocket_manager.broadcast_to_user(
+            user_id=member_id, event="chat:new", message=chat
+        )
+
+    return members
+
+
+async def is_user_chat_admin(
+    db: AsyncSession, chat_id: str, user_id: str
+) -> bool:
+    [members, total] = await list_members(db, chat_id=str(chat_id))
+    me = [member for member in members if member.id == user_id]
+    if not me or me[0].role != "admin":
+        return False
+    return True
+
+
+async def change_group_picture(
+    db: AsyncSession, chat_id: str, file: UploadFile, user_id: str
+):
+    allowed_types = {"image/png", "image/jpeg", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(400, "Unsupported file type")
+
+    old_chat_info: ChatInfo = await chat_queries.get_chat_by_id_short(
+        db, chat_id=chat_id, user_id=user_id
+    )
+
+    if not old_chat_info or old_chat_info.type != "group":
+        raise HTTPException(404, "Group not found")
+
+    if old_chat_info.avatar_url:
+        remove_from_minio(
+            old_chat_info.avatar_url.split("/")[-1],
+            settings.ASSETS_BUCKET_NAME,
+        )
+
+    filename = f"{uuid4().hex}{os.path.splitext(file.filename)[1]}"
+    resized_image = resize_image(file)
+    if not upload_to_minio(
+        file=resized_image[0],
+        bucket_name=settings.ASSETS_BUCKET_NAME,
+        filename=filename,
+    ):
+        raise HTTPException(500, "Internal server error")
+
+    avatar_url = f"/{settings.ASSETS_BUCKET_NAME}/{filename}"
+    chat_info = await chat_queries.change_group_picture(
+        db=db, chat_id=chat_id, avatar_url=avatar_url
+    )
+
+    await websocket_manager.broadcast_to_chat(
+        chat_id=chat_id, event="chat:edited", message=chat_info.model_dump()
+    )
+
+    return chat_info
+
+
+async def get_all_chat_ids(db: AsyncSession, user_id: str) -> List[int]:
+    return await chat_queries.get_all_chat_ids(db, user_id)
+
+
+async def mark_message_read(
+    db: AsyncSession, user_id: str, chat_id: str, message_id: str
+) -> None:
+    await chat_queries.mark_message_read(
+        db=db, user_id=user_id, chat_id=chat_id, message_id=message_id
+    )

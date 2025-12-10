@@ -1,5 +1,7 @@
 __pycache__
 __pycache__/
 .vscode/
+.ruff_cache/
 
+s3/
 .env
