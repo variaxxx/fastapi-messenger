@@ -70,16 +70,16 @@ async def get_chats_for_user(
     return [ChatInfoDto.model_validate(row) for row in rows]
 
 
-async def get_chat_by_id(
-    db: AsyncSession, chat_id: str, user_id: str
+async def get_chat_by_id_short(
+    db: AsyncSession, chat_id: str, user_id: Optional[str]
 ) -> Optional[ChatInfo]:
     q = text(
-        """
+        f"""
         SELECT *
         FROM chats c
             JOIN chat_members cm ON
                 cm.chat_id = c.id
-                AND cm.user_id = :user_id
+                {"AND cm.user_id = :user_id" if user_id else ""}
         WHERE id = :chat_id;
         """
     )
@@ -92,38 +92,119 @@ async def get_chat_by_id(
     return ChatInfo.model_validate(row)
 
 
-async def create_chat(
-    db: AsyncSession, type_: str, title: Optional[str] = None
-) -> ChatInfo:
+async def get_chat_by_id(
+    db: AsyncSession, chat_id: str, user_id: Optional[str]
+) -> Optional[ChatInfoDto]:
     q = text(
-        """
-        INSERT INTO chats (type, title)
-        VALUES (:type, :title)
-        RETURNING id, created_at, type, title, avatar_url;
+        f"""
+        SELECT
+            c.id,
+            c.created_at,
+            c.type,
+            c.avatar_url,
+
+            CASE
+                WHEN c.type = 'direct' THEN other_user.name
+                ELSE c.title
+            END AS title,
+
+            cm.role,
+            m.id AS last_message_id,
+            m.text AS last_message_text,
+            m.created_at AS last_message_date,
+            m.sender_id AS last_message_sender
+        FROM chats c
+            JOIN chat_members cm ON cm.chat_id = c.id
+
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(u.displayed_name, 'Аноним') AS name
+                FROM chat_members AS cm2
+                JOIN users AS u ON u.id = cm2.user_id
+                WHERE cm2.chat_id = c.id
+                    AND cm2.user_id <> :user_id
+                LIMIT 1
+            ) AS other_user ON TRUE
+
+            LEFT JOIN LATERAL (
+                SELECT *
+                FROM messages
+                WHERE messages.chat_id = c.id AND messages.is_deleted = FALSE
+                ORDER BY messages.created_at DESC
+                LIMIT 1
+            ) AS m ON TRUE
+        WHERE {"cm.user_id = :user_id" if user_id else ""}
+            AND cm.chat_id = :chat_id
+        LIMIT 1;
         """
     )
-    result = await db.execute(q, {"type": type_, "title": title})
+    result = await db.execute(q, {"chat_id": chat_id, "user_id": user_id})
     row = result.mappings().first()
-    return ChatInfo.model_validate(row)
+
+    if not row:
+        return None
+
+    return ChatInfoDto.model_validate(row)
 
 
-async def add_chat_member(
-    db: AsyncSession, chat_id: str, user_id: str, role: str = "member"
-) -> None:
+async def create_chat(
+    db: AsyncSession,
+    type_: str,
+    title: Optional[str],
+    creator_id: str,
+    members: List[str],
+) -> Tuple[ChatInfo, List[str]]:
     try:
-        q = text(
-            """
-            INSERT INTO chat_members (chat_id, user_id, role)
-            VALUES (:chat_id, :user_id, :role)
-            ON CONFLICT (chat_id, user_id) DO UPDATE SET role = EXCLUDED.role;
-            """
-        )
-        await db.execute(
-            q, {"chat_id": chat_id, "user_id": user_id, "role": role}
-        )
-    except IntegrityError as e:
-        await db.rollback()
+        async with db.begin():
+            q = text(
+                """
+                INSERT INTO chats (type, title)
+                VALUES (:type, :title)
+                RETURNING id, created_at, type, title, avatar_url;
+                """
+            )
+            result = await db.execute(q, {"type": type_, "title": title})
+            row = result.mappings().first()
+            chat = ChatInfo.model_validate(row)
 
+            q_member = text("""
+                INSERT INTO chat_members (chat_id, user_id, role)
+                VALUES (:chat_id, :user_id, :role)
+                ON CONFLICT (chat_id, user_id) DO UPDATE SET role = EXCLUDED.role;
+            """)
+            result = await db.execute(
+                q_member,
+                {
+                    "chat_id": chat.id,
+                    "user_id": creator_id,
+                    "role": "admin" if type_ == "group" else "member",
+                },
+            )
+
+            q = text("""
+                WITH valid_users AS (
+                    SELECT id
+                    FROM users
+                    WHERE id = ANY(:user_ids)
+                ),
+                inserted AS (
+                    INSERT INTO chat_members (chat_id, user_id, role)
+                    SELECT :chat_id, id, 'member'
+                    FROM valid_users
+                    ON CONFLICT DO NOTHING
+                    RETURNING user_id, role
+                )
+                SELECT u.id
+                FROM inserted i
+                    JOIN users u ON u.id = i.user_id;
+            """)
+            result = await db.execute(
+                q, {"user_ids": members, "chat_id": chat.id}
+            )
+            rows = result.scalars().all()
+
+            member_ids = [creator_id] + rows
+            return [chat, member_ids]
+    except IntegrityError as e:
         if getattr(e.orig, "pgcode", None) == "23503":
             raise HTTPException(404, "Chat or user not found")
         raise
@@ -261,40 +342,14 @@ async def get_messages_total(db: AsyncSession, chat_id: str) -> int:
 
 async def rename_chat(
     db: AsyncSession, editor_id: str, chat_id: str, title: str
-) -> ChatInfoDto:
+) -> ShortChatInfoDto:
     q = text("""
-        WITH updated_chat AS (
-            UPDATE chats
-            SET
-                title = :title,
-                updated_at = NOW()
-            WHERE id = :chat_id AND type = 'group'
-            RETURNING id, type, title
-        ),
-        last_message AS (
-            SELECT *
-            FROM messages
-            WHERE chat_id = :chat_id AND is_deleted = FALSE
-            ORDER BY created_at DESC
-            LIMIT 1
-        ),
-        chat_member AS (
-            SELECT
-                role
-            FROM chat_members
-            WHERE chat_id = :chat_id AND user_id = :editor_id
-            LIMIT 1
-        )
-        SELECT
-            uc.*,
-            cm.role,
-            lm.id AS last_message_id,
-            lm.text AS last_message_text,
-            lm.created_at AS last_message_date,
-            lm.sender_id AS last_message_sender
-        FROM updated_chat uc
-            JOIN chat_member AS cm ON TRUE
-            LEFT JOIN last_message AS lm ON TRUE;
+        UPDATE chats
+        SET
+            title = :title,
+            updated_at = NOW()
+        WHERE id = :chat_id AND type = 'group'
+        RETURNING id, type, title, avatar_url
     """)
     result = await db.execute(
         q, {"chat_id": chat_id, "title": title, "editor_id": editor_id}
@@ -304,7 +359,7 @@ async def rename_chat(
     if not row:
         raise HTTPException(404, "Chat not found")
 
-    return ChatInfoDto.model_validate(row)
+    return ShortChatInfoDto.model_validate(row)
 
 
 async def update_message(
@@ -413,7 +468,7 @@ async def remove_chat_member(
 
 async def delete_message(
     db: AsyncSession, message_id: str, user_id: str
-) -> None:
+) -> MessageInfo:
     q = text("""
         UPDATE messages m
         SET
@@ -429,11 +484,14 @@ async def delete_message(
                         AND cm.chat_id = m.chat_id
                         AND cm.role = 'admin'
                 )
-        RETURNING 1;
+        RETURNING m.id, m.created_at, m.updated_at, m.chat_id,
+            m.sender_id, m.text, m.is_edited, m.replies_to;
     """)
     result = await db.execute(q, {"message_id": message_id, "user_id": user_id})
-    if not result.scalar():
-        raise HTTPException(404, "Member not found")
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(404, "Message not found")
+    return MessageInfo.model_validate(row)
 
 
 async def add_chat_members(
@@ -508,3 +566,38 @@ async def save_attachment(
     )
     row = result.mappings().first()
     return AttachmentInfoDto.model_validate(row)
+
+
+async def get_all_chat_ids(db: AsyncSession, user_id: str) -> List[int]:
+    q = text("""
+        SELECT chat_id
+        FROM chat_members
+        WHERE user_id = :user_id;
+    """)
+    result = await db.execute(q, {"user_id": user_id})
+    rows = result.mappings().all()
+    return [row["chat_id"] for row in rows]
+
+
+async def mark_message_read(
+    db: AsyncSession, user_id: str, chat_id: str, message_id: str
+) -> None:
+    q = text("""
+        UPDATE chat_members cm
+        SET last_read_message_id = :message_id
+        FROM messages m
+        WHERE cm.chat_id = :chat_id
+            AND cm.user_id = :user_id
+            AND m.id = :message_id
+            AND (
+                cm.last_read_message_id IS NULL
+                OR m.created_at > (
+                    SELECT created_at
+                    FROM messages
+                    WHERE id = cm.last_read_message_id
+                )
+            );
+    """)
+    await db.execute(
+        q, {"message_id": message_id, "chat_id": chat_id, "user_id": user_id}
+    )
